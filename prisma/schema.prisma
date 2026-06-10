@@ -1,0 +1,234 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  SUPER_ADMIN
+  PASTOR
+  BENDAHARA
+  DEWAN_KEUANGAN
+  KETUA_KOMISI
+  TIM_PEMBANGUNAN
+  SEKRETARIAT
+}
+
+enum ApprovalStatus {
+  DRAFT
+  MENUNGGU_VERIFIKASI
+  MENUNGGU_PERSETUJUAN
+  DISETUJUI
+  DITOLAK
+  REVISI
+}
+
+enum SpjStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum FileType {
+  PDF
+  IMAGE
+}
+
+model Paroki {
+  id           String        @id @default(uuid())
+  nama         String        @unique
+  alamat       String
+  keuskupan    String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  
+  users        User[]
+  komisi       Komisi[]
+  anggaran     Anggaran[]
+  danaKhusus   DanaKhusus[]
+  kasMasuk     KasMasuk[]
+  kasKeluar    KasKeluar[]
+  auditLogs    AuditLog[]
+}
+
+model User {
+  id           String            @id @default(uuid())
+  email        String            @unique
+  password     String
+  name         String
+  role         Role
+  isActive     Boolean           @default(true)
+  parokiId     String
+  paroki       Paroki            @relation(fields: [parokiId], references: [id])
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  pengajuan        Pengajuan[]
+  approvals        ApprovalHistory[]
+  auditLogs        AuditLog[]
+}
+
+model Komisi {
+  id           String        @id @default(uuid())
+  nama         String
+  parokiId     String
+  paroki       Paroki        @relation(fields: [parokiId], references: [id])
+  createdAt    DateTime      @default(now())
+  
+  anggaran     Anggaran[]
+  pengajuan    Pengajuan[]
+}
+
+model Anggaran {
+  id           String        @id @default(uuid())
+  tahun        Int
+  plafon       Decimal       @db.Decimal(15, 2)
+  terpakai     Decimal       @default(0) @db.Decimal(15, 2)
+  sisa         Decimal       @db.Decimal(15, 2)
+  kategori     String        // e.g. "Liturgi", "PSE", "Operasional"
+  komisiId     String
+  komisi       Komisi        @relation(fields: [komisiId], references: [id])
+  parokiId     String
+  paroki       Paroki        @relation(fields: [parokiId], references: [id])
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  pengajuan    Pengajuan[]
+  kasKeluar    KasKeluar[]
+}
+
+model DanaKhusus {
+  id             String             @id @default(uuid())
+  namaDana       String
+  target         Decimal            @db.Decimal(15, 2)
+  terkumpul      Decimal            @default(0) @db.Decimal(15, 2)
+  terpakai       Decimal            @default(0) @db.Decimal(15, 2)
+  status         String             @default("AKTIF")
+  parokiId       String
+  paroki         Paroki             @relation(fields: [parokiId], references: [id])
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  mutasiDana     MutasiDanaKhusus[]
+}
+
+model MutasiDanaKhusus {
+  id             String     @id @default(uuid())
+  tanggal        DateTime
+  namaDonatur    String     // jika pemasukan (donasi)
+  penerima       String?    // jika pengeluaran dana pembangunan
+  jumlah         Decimal    @db.Decimal(15, 2)
+  jenis          String     // "IN" (donasi) | "OUT" (belanja pembangunan)
+  metode         String     // "TRANSFER" | "TUNAI"
+  danaKhususId   String
+  danaKhusus     DanaKhusus @relation(fields: [danaKhususId], references: [id])
+  createdAt      DateTime   @default(now())
+}
+
+model KasMasuk {
+  id           String        @id @default(uuid())
+  tanggal      DateTime
+  kategori     String        // "Kolekte" | "Donasi" | "Persembahan" | "Pembangunan" | "Lainnya"
+  sumber       String        // e.g. "Misa Minggu Pagi"
+  jumlah       Decimal       @db.Decimal(15, 2)
+  keterangan   String?
+  status       String        @default("Selesai")
+  parokiId     String
+  paroki       Paroki        @relation(fields: [parokiId], references: [id])
+  createdAt    DateTime      @default(now())
+}
+
+model KasKeluar {
+  id           String        @id @default(uuid())
+  tanggal      DateTime
+  kategori     String        // e.g. "Liturgi", "Operasional"
+  penerima     String        // e.g. Toko Buku ABC
+  jumlah       Decimal       @db.Decimal(15, 2)
+  status       String        @default("Selesai")
+  anggaranId   String?
+  anggaran     Anggaran?     @relation(fields: [anggaranId], references: [id])
+  attachmentId String?       @unique
+  attachment   Attachment?   @relation(fields: [attachmentId], references: [id])
+  parokiId     String
+  paroki       Paroki        @relation(fields: [parokiId], references: [id])
+  createdAt    DateTime      @default(now())
+}
+
+model Pengajuan {
+  id                String          @id @default(uuid())
+  judul             String
+  nominal           Decimal         @db.Decimal(15, 2)
+  tujuan            String
+  status            ApprovalStatus  @default(MENUNGGU_VERIFIKASI)
+  komisiId          String
+  komisi            Komisi          @relation(fields: [komisiId], references: [id])
+  anggaranId        String
+  anggaran          Anggaran        @relation(fields: [anggaranId], references: [id])
+  pemohonId         String
+  pemohon           User            @relation(fields: [pemohonId], references: [id])
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  alur              ApprovalHistory[]
+  spj               Spj[]
+}
+
+model ApprovalHistory {
+  id           String          @id @default(uuid())
+  step         String          // e.g. "Verifikasi Bendahara", "Persetujuan Pastor"
+  action       String          // "SUBMIT" | "APPROVE" | "REJECT" | "REVISE"
+  catatan      String?
+  tanggal      DateTime        @default(now())
+  picId        String
+  pic          User            @relation(fields: [picId], references: [id])
+  pengajuanId  String
+  pengajuan    Pengajuan       @relation(fields: [pengajuanId], references: [id])
+}
+
+model Spj {
+  id                String        @id @default(uuid())
+  title             String
+  amount            Decimal       @db.Decimal(15, 2)
+  status            SpjStatus     @default(PENDING)
+  uploadedBy        String
+  pengajuanId       String
+  pengajuan         Pengajuan     @relation(fields: [pengajuanId], references: [id])
+  createdAt         DateTime      @default(now())
+
+  lampiran          SpjLampiran[]
+}
+
+model SpjLampiran {
+  id           String     @id @default(uuid())
+  kategoriFile String     // "NOTA" | "KWITANSI" | "DOKUMENTASI" | "SURAT_TUGAS"
+  spjId        String
+  spj          Spj        @relation(fields: [spjId], references: [id])
+  attachmentId String     @unique
+  attachment   Attachment @relation(fields: [attachmentId], references: [id])
+}
+
+model Attachment {
+  id           String        @id @default(uuid())
+  fileName     String
+  fileType     FileType
+  fileUrl      String
+  fileSize     Int
+  createdAt    DateTime      @default(now())
+
+  kasKeluar    KasKeluar?
+  spjLampiran  SpjLampiran?
+}
+
+model AuditLog {
+  id           String        @id @default(uuid())
+  tanggal      DateTime      @default(now())
+  type         String        // "IN" | "OUT" | "APPROVE" | "SPJ" | "REJECT" | "REVISE" | "AUTH"
+  action       String        // Deskripsi log
+  amount       Decimal?      @db.Decimal(15, 2)
+  actorId      String
+  actor        User          @relation(fields: [actorId], references: [id])
+  parokiId     String
+  paroki       Paroki        @relation(fields: [parokiId], references: [id])
+}
