@@ -10,12 +10,13 @@ import kasMasukRouter from './modules/kas-masuk/kas-masuk.routes';
 import kasKeluarRouter from './modules/kas-keluar/kas-keluar.routes';
 import anggaranRouter from './modules/anggaran/anggaran.routes';
 import approvalRouter from './modules/approval/approval.routes';
+import profileRouter from './modules/profile/profile.routes';
 import path from 'path';
 
 const app = express();
 
 // Security Middlewares
-app.use(helmet());
+app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors());
 
 // Serve static uploads
@@ -32,6 +33,7 @@ app.use('/api/v1/kas/masuk', kasMasukRouter);
 app.use('/api/v1/kas/keluar', kasKeluarRouter);
 app.use('/api/v1/anggaran', anggaranRouter);
 app.use('/api/v1/approvals', approvalRouter);
+app.use('/api/v1/profile', profileRouter);
 
 // Health Check Route
 app.get('/health', (req, res) => {

@@ -1,0 +1,5446 @@
+=== STRUKTUR & ISI KODE SANTIKA-BE (HYBRID MODE) ===
+
+
+--- FILE: package.json ---
+{
+  "name": "santika-be",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "nodemon --watch src --ext ts --exec ts-node src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "helmet": "^8.2.0",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.1.1",
+    "pg": "^8.21.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.1.0",
+    "@types/node": "^25.9.2",
+    "@types/pg": "^8.20.0",
+    "nodemon": "^3.1.14",
+    "prisma": "^7.8.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  }
+}
+
+
+--- FILE: prisma\schema.prisma ---
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  SUPER_ADMIN
+  PASTOR
+  BENDAHARA
+  DEWAN_KEUANGAN
+  KETUA_KOMISI
+  TIM_PEMBANGUNAN
+  SEKRETARIAT
+}
+
+enum ApprovalStatus {
+  DRAFT
+  MENUNGGU_VERIFIKASI
+  MENUNGGU_PERSETUJUAN
+  DISETUJUI
+  DITOLAK
+  REVISI
+}
+
+enum SpjStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum FileType {
+  PDF
+  IMAGE
+}
+
+model Paroki {
+  id           String        @id @default(uuid())
+  nama         String        @unique
+  alamat       String
+  keuskupan    String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  
+  users        User[]
+  komisi       Komisi[]
+  anggaran     Anggaran[]
+  danaKhusus   DanaKhusus[]
+  kasMasuk     KasMasuk[]
+  kasKeluar    KasKeluar[]
+  auditLogs    AuditLog[]
+}
+
+model User {
+  id           String            @id @default(uuid())
+  email        String            @unique
+  password     String
+  name         String
+  role         Role
+  // Avatar URL — satu-satunya field yang boleh diedit mandiri oleh pengguna.
+  // Audit trail (name, email, role, parokiId) adalah READ-ONLY untuk menjaga
+  // integritas akuntabilitas pada AuditLog dan ApprovalHistory.
+  avatarUrl    String?
+  isActive     Boolean           @default(true)
+  parokiId     String
+  paroki       Paroki            @relation(fields: [parokiId], references: [id])
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  pengajuan        Pengajuan[]
+  approvals        ApprovalHistory[]
+  auditLogs        AuditLog[]
+}
+
+model Komisi {
+  id           String        @id @default(uuid())
+  nama         String
+  parokiId     String
+  paroki       Paroki        @relation(fields: [parokiId], references: [id])
+  createdAt    DateTime      @default(now())
+  
+  anggaran     Anggaran[]
+  pengajuan    Pengajuan[]
+}
+
+model Anggaran {
+  id           String        @id @default(uuid())
+  tahun        Int
+  plafon       Decimal       @db.Decimal(15, 2)
+  terpakai     Decimal       @default(0) @db.Decimal(15, 2)
+  sisa         Decimal       @db.Decimal(15, 2)
+  kategori     String        // e.g. "Liturgi", "PSE", "Operasional"
+  komisiId     String
+  komisi       Komisi        @relation(fields: [komisiId], references: [id])
+  parokiId     String
+  paroki       Paroki        @relation(fields: [parokiId], references: [id])
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  pengajuan    Pengajuan[]
+  kasKeluar    KasKeluar[]
+}
+
+model DanaKhusus {
+  id             String             @id @default(uuid())
+  namaDana       String
+  target         Decimal            @db.Decimal(15, 2)
+  terkumpul      Decimal            @default(0) @db.Decimal(15, 2)
+  terpakai       Decimal            @default(0) @db.Decimal(15, 2)
+  status         String             @default("AKTIF")
+  parokiId       String
+  paroki         Paroki             @relation(fields: [parokiId], references: [id])
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  mutasiDana     MutasiDanaKhusus[]
+}
+
+model MutasiDanaKhusus {
+  id             String     @id @default(uuid())
+  tanggal        DateTime
+  namaDonatur    String     // jika pemasukan (donasi)
+  penerima       String?    // jika pengeluaran dana pembangunan
+  jumlah         Decimal    @db.Decimal(15, 2)
+  jenis          String     // "IN" (donasi) | "OUT" (belanja pembangunan)
+  metode         String     // "TRANSFER" | "TUNAI"
+  danaKhususId   String
+  danaKhusus     DanaKhusus @relation(fields: [danaKhususId], references: [id])
+  createdAt      DateTime   @default(now())
+}
+
+model KasMasuk {
+  id           String        @id @default(uuid())
+  tanggal      DateTime
+  kategori     String        // "Kolekte" | "Donasi" | "Persembahan" | "Pembangunan" | "Lainnya"
+  sumber       String        // e.g. "Misa Minggu Pagi"
+  jumlah       Decimal       @db.Decimal(15, 2)
+  keterangan   String?
+  status       String        @default("Selesai")
+  parokiId     String
+  paroki       Paroki        @relation(fields: [parokiId], references: [id])
+  createdAt    DateTime      @default(now())
+}
+
+model KasKeluar {
+  id           String        @id @default(uuid())
+  tanggal      DateTime
+  kategori     String        // e.g. "Liturgi", "Operasional"
+  penerima     String        // e.g. Toko Buku ABC
+  jumlah       Decimal       @db.Decimal(15, 2)
+  status       String        @default("Selesai")
+  anggaranId   String?
+  anggaran     Anggaran?     @relation(fields: [anggaranId], references: [id])
+  attachmentId String?       @unique
+  attachment   Attachment?   @relation(fields: [attachmentId], references: [id])
+  parokiId     String
+  paroki       Paroki        @relation(fields: [parokiId], references: [id])
+  createdAt    DateTime      @default(now())
+}
+
+model Pengajuan {
+  id                String          @id @default(uuid())
+  judul             String
+  nominal           Decimal         @db.Decimal(15, 2)
+  tujuan            String
+  status            ApprovalStatus  @default(MENUNGGU_VERIFIKASI)
+  komisiId          String
+  komisi            Komisi          @relation(fields: [komisiId], references: [id])
+  anggaranId        String
+  anggaran          Anggaran        @relation(fields: [anggaranId], references: [id])
+  pemohonId         String
+  pemohon           User            @relation(fields: [pemohonId], references: [id])
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  alur              ApprovalHistory[]
+  spj               Spj[]
+}
+
+model ApprovalHistory {
+  id           String          @id @default(uuid())
+  step         String          // e.g. "Verifikasi Bendahara", "Persetujuan Pastor"
+  action       String          // "SUBMIT" | "APPROVE" | "REJECT" | "REVISE"
+  catatan      String?
+  tanggal      DateTime        @default(now())
+  picId        String
+  pic          User            @relation(fields: [picId], references: [id])
+  pengajuanId  String
+  pengajuan    Pengajuan       @relation(fields: [pengajuanId], references: [id])
+}
+
+model Spj {
+  id                String        @id @default(uuid())
+  title             String
+  amount            Decimal       @db.Decimal(15, 2)
+  status            SpjStatus     @default(PENDING)
+  uploadedBy        String
+  pengajuanId       String
+  pengajuan         Pengajuan     @relation(fields: [pengajuanId], references: [id])
+  createdAt         DateTime      @default(now())
+
+  lampiran          SpjLampiran[]
+}
+
+model SpjLampiran {
+  id           String     @id @default(uuid())
+  kategoriFile String     // "NOTA" | "KWITANSI" | "DOKUMENTASI" | "SURAT_TUGAS"
+  spjId        String
+  spj          Spj        @relation(fields: [spjId], references: [id])
+  attachmentId String     @unique
+  attachment   Attachment @relation(fields: [attachmentId], references: [id])
+}
+
+model Attachment {
+  id           String        @id @default(uuid())
+  fileName     String
+  fileType     FileType
+  fileUrl      String
+  fileSize     Int
+  createdAt    DateTime      @default(now())
+
+  kasKeluar    KasKeluar?
+  spjLampiran  SpjLampiran?
+}
+
+model AuditLog {
+  id           String        @id @default(uuid())
+  tanggal      DateTime      @default(now())
+  type         String        // "IN" | "OUT" | "APPROVE" | "SPJ" | "REJECT" | "REVISE" | "AUTH"
+  action       String        // Deskripsi log
+  amount       Decimal?      @db.Decimal(15, 2)
+  actorId      String
+  actor        User          @relation(fields: [actorId], references: [id])
+  parokiId     String
+  paroki       Paroki        @relation(fields: [parokiId], references: [id])
+}
+
+
+--- FILE: prisma\seed.js ---
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+require("dotenv/config");
+const pg_1 = require("pg");
+const adapter_pg_1 = require("@prisma/adapter-pg");
+const client_1 = require("@prisma/client");
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
+const pool = new pg_1.Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new adapter_pg_1.PrismaPg(pool);
+const prisma = new client_1.PrismaClient({ adapter });
+async function main() {
+    console.log('🌱 Starting database seeding...');
+    // 1. Clean up existing data (optional, but good for idempotent runs)
+    // Clean in order of dependencies
+    await prisma.auditLog.deleteMany({});
+    await prisma.approvalHistory.deleteMany({});
+    await prisma.spjLampiran.deleteMany({});
+    await prisma.spj.deleteMany({});
+    await prisma.pengajuan.deleteMany({});
+    await prisma.kasKeluar.deleteMany({});
+    await prisma.kasMasuk.deleteMany({});
+    await prisma.mutasiDanaKhusus.deleteMany({});
+    await prisma.danaKhusus.deleteMany({});
+    await prisma.anggaran.deleteMany({});
+    await prisma.komisi.deleteMany({});
+    await prisma.user.deleteMany({});
+    await prisma.paroki.deleteMany({});
+    console.log('🧹 Cleaned up old records.');
+    // 2. Create default Paroki
+    const paroki = await prisma.paroki.create({
+        data: {
+            nama: 'Paroki Santo Yosef',
+            alamat: 'Jl. Pemuda No. 12, Semarang',
+            keuskupan: 'Keuskupan Agung Semarang',
+        },
+    });
+    console.log(`⛪ Created Paroki: ${paroki.nama}`);
+    // 3. Create default Komisi
+    const komisiLiturgi = await prisma.komisi.create({
+        data: {
+            nama: 'Komisi Liturgi',
+            parokiId: paroki.id,
+        },
+    });
+    const komisiPSE = await prisma.komisi.create({
+        data: {
+            nama: 'Komisi PSE (Pengembangan Sosial Ekonomi)',
+            parokiId: paroki.id,
+        },
+    });
+    console.log('📋 Created default Komisi records.');
+    // 4. Create default Anggaran
+    const tahunAnggaran = new Date().getFullYear();
+    await prisma.anggaran.create({
+        data: {
+            tahun: tahunAnggaran,
+            plafon: 50000000.00, // 50 Million
+            terpakai: 0.00,
+            sisa: 50000000.00,
+            kategori: 'Liturgi',
+            komisiId: komisiLiturgi.id,
+            parokiId: paroki.id,
+        },
+    });
+    await prisma.anggaran.create({
+        data: {
+            tahun: tahunAnggaran,
+            plafon: 75000000.00, // 75 Million
+            terpakai: 0.00,
+            sisa: 75000000.00,
+            kategori: 'Sosial',
+            komisiId: komisiPSE.id,
+            parokiId: paroki.id,
+        },
+    });
+    console.log('💰 Created initial Anggaran limits.');
+    // 5. Hash password for users
+    const hashedPassword = await bcryptjs_1.default.hash('password123', 10);
+    // 6. Define users to create
+    const usersToCreate = [
+        {
+            email: 'admin@santika.org',
+            name: 'Super Admin Santika',
+            role: client_1.Role.SUPER_ADMIN,
+        },
+        {
+            email: 'pastor@santika.org',
+            name: 'Romo Yohanes, Pr',
+            role: client_1.Role.PASTOR,
+        },
+        {
+            email: 'bendahara@santika.org',
+            name: 'Ibu Maria Susanti',
+            role: client_1.Role.BENDAHARA,
+        },
+        {
+            email: 'dewan@santika.org',
+            name: 'Bapak FX. Bambang',
+            role: client_1.Role.DEWAN_KEUANGAN,
+        },
+        {
+            email: 'komisi@santika.org',
+            name: 'Bapak Ignatius Sutrisno',
+            role: client_1.Role.KETUA_KOMISI,
+        },
+        {
+            email: 'pembangunan@santika.org',
+            name: 'Bapak Thomas Wijaya',
+            role: client_1.Role.TIM_PEMBANGUNAN,
+        },
+        {
+            email: 'sekretariat@santika.org',
+            name: 'Sdri. Anastasia Eka',
+            role: client_1.Role.SEKRETARIAT,
+        },
+    ];
+    for (const userData of usersToCreate) {
+        const user = await prisma.user.create({
+            data: {
+                email: userData.email,
+                name: userData.name,
+                password: hashedPassword,
+                role: userData.role,
+                isActive: true,
+                parokiId: paroki.id,
+            },
+        });
+        console.log(`👤 Created User: ${user.name} (${user.role})`);
+    }
+    console.log('🎉 Seeding successfully completed!');
+}
+main()
+    .catch((e) => {
+    console.error('❌ Seeding failed:', e);
+    process.exit(1);
+})
+    .finally(async () => {
+    await prisma.$disconnect();
+});
+
+
+--- FILE: prisma\seed.ts ---
+import 'dotenv/config';
+import { Pool } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient, Role } from '@prisma/client';
+import bcrypt from 'bcryptjs';
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
+
+async function main() {
+  console.log('🌱 Starting database seeding...');
+
+  // 1. Clean up existing data (optional, but good for idempotent runs)
+  // Clean in order of dependencies
+  await prisma.auditLog.deleteMany({});
+  await prisma.approvalHistory.deleteMany({});
+  await prisma.spjLampiran.deleteMany({});
+  await prisma.spj.deleteMany({});
+  await prisma.pengajuan.deleteMany({});
+  await prisma.kasKeluar.deleteMany({});
+  await prisma.kasMasuk.deleteMany({});
+  await prisma.mutasiDanaKhusus.deleteMany({});
+  await prisma.danaKhusus.deleteMany({});
+  await prisma.anggaran.deleteMany({});
+  await prisma.komisi.deleteMany({});
+  await prisma.user.deleteMany({});
+  await prisma.paroki.deleteMany({});
+
+  console.log('🧹 Cleaned up old records.');
+
+  // 2. Create default Paroki
+  const paroki = await prisma.paroki.create({
+    data: {
+      nama: 'Paroki Santo Yosef',
+      alamat: 'Jl. Pemuda No. 12, Semarang',
+      keuskupan: 'Keuskupan Agung Semarang',
+    },
+  });
+
+  console.log(`⛪ Created Paroki: ${paroki.nama}`);
+
+  // 3. Create default Komisi
+  const komisiLiturgi = await prisma.komisi.create({
+    data: {
+      nama: 'Komisi Liturgi',
+      parokiId: paroki.id,
+    },
+  });
+  
+  const komisiPSE = await prisma.komisi.create({
+    data: {
+      nama: 'Komisi PSE (Pengembangan Sosial Ekonomi)',
+      parokiId: paroki.id,
+    },
+  });
+
+  console.log('📋 Created default Komisi records.');
+
+  // 4. Create default Anggaran
+  const tahunAnggaran = new Date().getFullYear();
+  await prisma.anggaran.create({
+    data: {
+      tahun: tahunAnggaran,
+      plafon: 50000000.00, // 50 Million
+      terpakai: 0.00,
+      sisa: 50000000.00,
+      kategori: 'Liturgi',
+      komisiId: komisiLiturgi.id,
+      parokiId: paroki.id,
+    },
+  });
+
+  await prisma.anggaran.create({
+    data: {
+      tahun: tahunAnggaran,
+      plafon: 75000000.00, // 75 Million
+      terpakai: 0.00,
+      sisa: 75000000.00,
+      kategori: 'Sosial',
+      komisiId: komisiPSE.id,
+      parokiId: paroki.id,
+    },
+  });
+
+  console.log('💰 Created initial Anggaran limits.');
+
+  // 5. Hash password for users
+  const hashedPassword = await bcrypt.hash('password123', 10);
+
+  // 6. Define users to create
+  const usersToCreate = [
+    {
+      email: 'admin@santika.org',
+      name: 'Super Admin Santika',
+      role: Role.SUPER_ADMIN,
+    },
+    {
+      email: 'pastor@santika.org',
+      name: 'Romo Yohanes, Pr',
+      role: Role.PASTOR,
+    },
+    {
+      email: 'bendahara@santika.org',
+      name: 'Ibu Maria Susanti',
+      role: Role.BENDAHARA,
+    },
+    {
+      email: 'dewan@santika.org',
+      name: 'Bapak FX. Bambang',
+      role: Role.DEWAN_KEUANGAN,
+    },
+    {
+      email: 'komisi@santika.org',
+      name: 'Bapak Ignatius Sutrisno',
+      role: Role.KETUA_KOMISI,
+    },
+    {
+      email: 'pembangunan@santika.org',
+      name: 'Bapak Thomas Wijaya',
+      role: Role.TIM_PEMBANGUNAN,
+    },
+    {
+      email: 'sekretariat@santika.org',
+      name: 'Sdri. Anastasia Eka',
+      role: Role.SEKRETARIAT,
+    },
+  ];
+
+  for (const userData of usersToCreate) {
+    const user = await prisma.user.create({
+      data: {
+        email: userData.email,
+        name: userData.name,
+        password: hashedPassword,
+        role: userData.role,
+        isActive: true,
+        parokiId: paroki.id,
+      },
+    });
+    console.log(`👤 Created User: ${user.name} (${user.role})`);
+  }
+
+  console.log('🎉 Seeding successfully completed!');
+}
+
+main()
+  .catch((e) => {
+    console.error('❌ Seeding failed:', e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
+
+
+--- FILE: prisma.config.ts ---
+// This file was generated by Prisma, and assumes you have installed the following:
+// npm install --save-dev prisma dotenv
+import "dotenv/config";
+import { defineConfig } from "prisma/config";
+
+// Prisma v7: URL koneksi database WAJIB di sini, tidak boleh di schema.prisma.
+// dotenv/config di atas memastikan .env terbaca sebelum baris ini dieksekusi.
+const databaseUrl = process.env["DATABASE_URL"];
+
+if (!databaseUrl) {
+  throw new Error(
+    '[SANTIKA] DATABASE_URL tidak ditemukan di environment variables.\n' +
+    'Pastikan file .env sudah ada di root project santika-be dengan format:\n' +
+    'DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/santika_db?schema=public"'
+  );
+}
+
+export default defineConfig({
+  schema: "prisma/schema.prisma",
+  migrations: {
+    path: "prisma/migrations",
+    seed: "ts-node prisma/seed.ts",
+  },
+  datasource: {
+    url: databaseUrl,
+  },
+});
+
+
+--- FILE: src\common\guards\rbac.guard.ts ---
+import { Request, Response, NextFunction } from 'express';
+import { Role } from '@prisma/client';
+import { ApiError } from '../utils/api-error';
+
+/**
+ * Middleware to restrict route access to specific user roles.
+ * Must be placed after the authenticate middleware.
+ */
+export const authorize = (...allowedRoles: Role[]) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return next(ApiError.unauthorized('User not authenticated'));
+    }
+
+    const userRole = req.user.role as Role;
+
+    if (!allowedRoles.includes(userRole)) {
+      return next(ApiError.forbidden(`Access denied: Insufficient permissions for role ${userRole}`));
+    }
+
+    next();
+  };
+};
+
+
+--- FILE: src\common\middleware\auth.middleware.ts ---
+import { Request, Response, NextFunction } from 'express';
+import { verifyAccessToken } from '../utils/token.util';
+import { ApiError } from '../utils/api-error';
+import '../types';
+
+export const authenticate = (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return next(ApiError.unauthorized('Authorization header is missing'));
+    }
+
+    const parts = authHeader.split(' ');
+    if (parts.length !== 2 || parts[0] !== 'Bearer') {
+      return next(ApiError.unauthorized('Authorization header format must be Bearer <token>'));
+    }
+
+    const token = parts[1];
+    const decoded = verifyAccessToken(token);
+    
+    req.user = decoded;
+    next();
+  } catch (error: any) {
+    if (error.name === 'TokenExpiredError') {
+      return next(ApiError.unauthorized('Access token has expired'));
+    }
+    return next(ApiError.unauthorized('Invalid access token'));
+  }
+};
+
+
+--- FILE: src\common\middleware\error.middleware.ts ---
+import { Request, Response, NextFunction } from 'express';
+
+export interface CustomError extends Error {
+  statusCode?: number;
+}
+
+export const errorHandler = (
+  err: CustomError,
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const statusCode = err.statusCode || 500;
+  const message = err.message || 'Internal Server Error';
+
+  console.error(`[Error] ${req.method} ${req.url} - Status ${statusCode} - ${message}`);
+  if (err.stack && process.env.NODE_ENV !== 'production') {
+    console.error(err.stack);
+  }
+
+  res.status(statusCode).json({
+    status: 'error',
+    statusCode,
+    message,
+    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
+  });
+};
+
+
+--- FILE: src\common\middleware\upload.middleware.ts ---
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { ApiError } from '../utils/api-error';
+
+// Ensure uploads directory exists
+const uploadDir = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Multer Storage Configuration
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    const ext = path.extname(file.originalname);
+    cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+  },
+});
+
+// File Type Filters (Only allow PDF and Common Images)
+const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  const allowedMimeTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+  if (allowedMimeTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new ApiError(400, 'Invalid file type. Only PDF and JPG/JPEG/PNG images are allowed.'));
+  }
+};
+
+// Multer Instance
+export const multerUpload = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+});
+
+
+--- FILE: src\common\middleware\validation.middleware.ts ---
+import { Request, Response, NextFunction } from 'express';
+import { ZodError, ZodTypeAny } from 'zod';
+
+export const validateRequest = (schema: ZodTypeAny) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = (await schema.parseAsync({
+        body: req.body,
+        query: req.query,
+        params: req.params,
+      })) as any;
+      
+      // Mutate express request with parsed and transformed values
+      if (parsed.body !== undefined) {
+        req.body = parsed.body;
+      }
+      if (parsed.query !== undefined) {
+        Object.defineProperty(req, 'query', {
+          value: parsed.query,
+          writable: true,
+          configurable: true,
+          enumerable: true
+        });
+      }
+      if (parsed.params !== undefined) {
+        Object.defineProperty(req, 'params', {
+          value: parsed.params,
+          writable: true,
+          configurable: true,
+          enumerable: true
+        });
+      }
+
+      next();
+    } catch (error) {
+      if (error instanceof ZodError) {
+        const errorMessages = error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        }));
+        
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'Validation failed',
+          errors: errorMessages,
+        });
+      }
+      next(error);
+    }
+  };
+};
+
+
+--- FILE: src\common\types\index.ts ---
+import { AccessTokenPayload } from '../utils/token.util';
+
+declare global {
+  namespace Express {
+    interface Request {
+      user?: AccessTokenPayload;
+    }
+  }
+}
+export {};
+
+
+--- FILE: src\common\utils\api-error.ts ---
+export class ApiError extends Error {
+  public readonly statusCode: number;
+
+  constructor(statusCode: number, message: string) {
+    super(message);
+    this.statusCode = statusCode;
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+
+  static badRequest(msg: string) {
+    return new ApiError(400, msg);
+  }
+
+  static unauthorized(msg: string = 'Unauthorized access') {
+    return new ApiError(401, msg);
+  }
+
+  static forbidden(msg: string = 'Access denied') {
+    return new ApiError(403, msg);
+  }
+
+  static notFound(msg: string = 'Resource not found') {
+    return new ApiError(404, msg);
+  }
+
+  static internal(msg: string = 'Internal server error') {
+    return new ApiError(500, msg);
+  }
+}
+
+
+--- FILE: src\common\utils\token.util.ts ---
+import jwt from 'jsonwebtoken';
+import { env } from '../../config/env';
+
+export interface AccessTokenPayload {
+  id: string;
+  email: string;
+  role: string;
+  parokiId: string;
+}
+
+export interface RefreshTokenPayload {
+  id: string;
+}
+
+export const signAccessToken = (payload: AccessTokenPayload): string => {
+  return jwt.sign(payload, env.JWT_SECRET, {
+    expiresIn: env.JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'],
+  });
+};
+
+export const signRefreshToken = (payload: RefreshTokenPayload): string => {
+  return jwt.sign(payload, env.JWT_REFRESH_SECRET, {
+    expiresIn: env.JWT_REFRESH_EXPIRES_IN as jwt.SignOptions['expiresIn'],
+  });
+};
+
+export const verifyAccessToken = (token: string): AccessTokenPayload => {
+  return jwt.verify(token, env.JWT_SECRET) as AccessTokenPayload;
+};
+
+export const verifyRefreshToken = (token: string): RefreshTokenPayload => {
+  return jwt.verify(token, env.JWT_REFRESH_SECRET) as RefreshTokenPayload;
+};
+
+
+--- FILE: src\config\database.ts ---
+import { Pool } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '@prisma/client';
+import { env } from './env';
+
+const pool = new Pool({ connectionString: env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+
+export const prisma = new PrismaClient({ adapter });
+
+async function testConnection() {
+  try {
+    await prisma.$connect();
+    console.log('Database connected successfully.');
+  } catch (error) {
+    console.error('Database connection failed:', error);
+  }
+}
+
+testConnection();
+
+
+--- FILE: src\config\env.ts ---
+import dotenv from 'dotenv';
+import { z } from 'zod';
+
+dotenv.config();
+
+const envSchema = z.object({
+  PORT: z.string().default('4000').transform(Number),
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+  JWT_SECRET: z.string().min(8, 'JWT_SECRET must be at least 8 characters'),
+  JWT_REFRESH_SECRET: z.string().min(8, 'JWT_REFRESH_SECRET must be at least 8 characters'),
+  JWT_EXPIRES_IN: z.string().default('15m'),
+  JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
+});
+
+const parsed = envSchema.safeParse(process.env);
+
+if (!parsed.success) {
+  console.error('❌ Invalid Environment Variables:', JSON.stringify(parsed.error.format(), null, 2));
+  process.exit(1);
+}
+
+export const env = parsed.data;
+
+
+--- FILE: src\modules\anggaran\anggaran.controller.ts ---
+import { Request, Response, NextFunction } from 'express';
+import { AnggaranService } from './anggaran.service';
+
+export class AnggaranController {
+  static async getAnggaran(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const filters = {
+        tahun: req.query.tahun ? Number(req.query.tahun) : undefined,
+        komisiId: req.query.komisiId as string | undefined,
+      };
+
+      const budgets = await AnggaranService.getAnggaran(parokiId, filters);
+
+      res.status(200).json({
+        status: 'success',
+        data: {
+          budgets,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async createAnggaran(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const actorId = req.user!.id;
+
+      const newBudget = await AnggaranService.createAnggaran(
+        parokiId,
+        actorId,
+        req.body
+      );
+
+      res.status(201).json({
+        status: 'success',
+        message: 'Alokasi anggaran berhasil disimpan',
+        data: {
+          budget: newBudget,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async updateAnggaran(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const actorId = req.user!.id;
+      const id = req.params.id as string;
+
+      const updatedBudget = await AnggaranService.updateAnggaran(
+        parokiId,
+        actorId,
+        id,
+        req.body
+      );
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Alokasi anggaran berhasil diperbarui',
+        data: {
+          budget: updatedBudget,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+
+
+--- FILE: src\modules\anggaran\anggaran.routes.ts ---
+import { Router } from 'express';
+import { AnggaranController } from './anggaran.controller';
+import { authenticate } from '../../common/middleware/auth.middleware';
+import { authorize } from '../../common/guards/rbac.guard';
+import { validateRequest } from '../../common/middleware/validation.middleware';
+import {
+  createAnggaranSchema,
+  updateAnggaranSchema,
+  getAnggaranQuerySchema,
+} from './anggaran.schema';
+import { Role } from '@prisma/client';
+
+const router = Router();
+
+// Apply auth middleware globally to all Anggaran routes
+router.use(authenticate);
+
+// Routes with specific RBAC guards and validators
+router.get(
+  '/',
+  authorize(Role.BENDAHARA, Role.PASTOR, Role.DEWAN_KEUANGAN),
+  validateRequest(getAnggaranQuerySchema),
+  AnggaranController.getAnggaran
+);
+
+router.post(
+  '/',
+  authorize(Role.BENDAHARA),
+  validateRequest(createAnggaranSchema),
+  AnggaranController.createAnggaran
+);
+
+router.put(
+  '/:id',
+  authorize(Role.BENDAHARA),
+  validateRequest(updateAnggaranSchema),
+  AnggaranController.updateAnggaran
+);
+
+export default router;
+
+
+--- FILE: src\modules\anggaran\anggaran.schema.ts ---
+import { z } from 'zod';
+
+export const createAnggaranSchema = z.object({
+  body: z.object({
+    tahun: z
+      .number({ message: 'Tahun is required' })
+      .int()
+      .positive('Tahun must be a positive integer'),
+    plafon: z
+      .number({ message: 'Plafon is required' })
+      .positive('Plafon must be a positive number'),
+    kategori: z.string().min(2, 'Kategori must be at least 2 characters'),
+    komisiId: z.string().uuid('Invalid Komisi ID format'),
+  }),
+});
+
+export const updateAnggaranSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid transaction ID format'),
+  }),
+  body: z.object({
+    tahun: z
+      .number()
+      .int()
+      .positive('Tahun must be a positive integer')
+      .optional(),
+    plafon: z
+      .number()
+      .positive('Plafon must be a positive number')
+      .optional(),
+    kategori: z.string().min(2, 'Kategori must be at least 2 characters').optional(),
+    komisiId: z.string().uuid('Invalid Komisi ID format').optional(),
+  }),
+});
+
+export const getAnggaranQuerySchema = z.object({
+  query: z.object({
+    tahun: z
+      .string()
+      .optional()
+      .transform((val) => (val ? parseInt(val, 10) : undefined)),
+    komisiId: z.string().uuid('Invalid Komisi ID format').optional(),
+  }),
+});
+
+export type CreateAnggaranInput = z.infer<typeof createAnggaranSchema>;
+export type UpdateAnggaranInput = z.infer<typeof updateAnggaranSchema>;
+export type GetAnggaranQueryInput = z.infer<typeof getAnggaranQuerySchema>;
+
+
+--- FILE: src\modules\anggaran\anggaran.service.ts ---
+import { prisma } from '../../config/database';
+import { ApiError } from '../../common/utils/api-error';
+
+export class AnggaranService {
+  /**
+   * Get list of Anggaran records scoped to Paroki with filters
+   */
+  static async getAnggaran(
+    parokiId: string,
+    filters: {
+      tahun?: number;
+      komisiId?: string;
+    }
+  ) {
+    const whereClause: any = {
+      parokiId,
+    };
+
+    if (filters.tahun !== undefined) {
+      whereClause.tahun = filters.tahun;
+    }
+
+    if (filters.komisiId !== undefined) {
+      whereClause.komisiId = filters.komisiId;
+    }
+
+    return await prisma.anggaran.findMany({
+      where: whereClause,
+      include: {
+        komisi: true,
+      },
+      orderBy: {
+        tahun: 'desc',
+      },
+    });
+  }
+
+  /**
+   * Create a new Anggaran allocation
+   */
+  static async createAnggaran(
+    parokiId: string,
+    actorId: string,
+    input: {
+      tahun: number;
+      plafon: number;
+      kategori: string;
+      komisiId: string;
+    }
+  ) {
+    // 1. Validate Komisi ownership and boundary
+    const komisi = await prisma.komisi.findUnique({
+      where: { id: input.komisiId },
+    });
+
+    if (!komisi) {
+      throw ApiError.notFound('Komisi tidak ditemukan');
+    }
+
+    if (komisi.parokiId !== parokiId) {
+      throw ApiError.forbidden('Komisi berada di luar paroki Anda');
+    }
+
+    // 2. Prevent duplicate allocation for the same commission and year in this Paroki
+    const existing = await prisma.anggaran.findFirst({
+      where: {
+        parokiId,
+        komisiId: input.komisiId,
+        tahun: input.tahun,
+      },
+    });
+
+    if (existing) {
+      throw ApiError.badRequest(
+        `Anggaran untuk Komisi ${komisi.nama} pada tahun ${input.tahun} sudah dialokasikan`
+      );
+    }
+
+    // 3. Save to database
+    const newAnggaran = await prisma.anggaran.create({
+      data: {
+        tahun: input.tahun,
+        plafon: input.plafon,
+        terpakai: 0,
+        sisa: input.plafon,
+        kategori: input.kategori,
+        komisiId: input.komisiId,
+        parokiId,
+      },
+      include: {
+        komisi: true,
+      },
+    });
+
+    // 4. Record Audit Log
+    const formattedPlafon = new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0,
+    }).format(input.plafon);
+
+    await prisma.auditLog.create({
+      data: {
+        type: 'IN',
+        action: `Mengalokasikan anggaran Komisi ${komisi.nama} tahun ${input.tahun} senilai ${formattedPlafon}`,
+        amount: input.plafon,
+        actorId,
+        parokiId,
+      },
+    });
+
+    return newAnggaran;
+  }
+
+  /**
+   * Update an existing Anggaran allocation
+   */
+  static async updateAnggaran(
+    parokiId: string,
+    actorId: string,
+    id: string,
+    input: {
+      tahun?: number;
+      plafon?: number;
+      kategori?: string;
+      komisiId?: string;
+    }
+  ) {
+    // 1. Fetch existing record and verify boundaries
+    const existing = await prisma.anggaran.findUnique({
+      where: { id },
+      include: { komisi: true },
+    });
+
+    if (!existing) {
+      throw ApiError.notFound('Data Anggaran tidak ditemukan');
+    }
+
+    if (existing.parokiId !== parokiId) {
+      throw ApiError.forbidden('Anda tidak memiliki akses untuk mengubah anggaran ini');
+    }
+
+    const updatedPlafon = input.plafon !== undefined ? input.plafon : Number(existing.plafon);
+    const updatedTahun = input.tahun !== undefined ? input.tahun : existing.tahun;
+    const updatedKomisiId = input.komisiId !== undefined ? input.komisiId : existing.komisiId;
+
+    // 2. Validate plafon limit bounds
+    const terpakai = Number(existing.terpakai);
+    if (updatedPlafon < terpakai) {
+      throw ApiError.badRequest(
+        `Plafon baru tidak boleh lebih kecil dari nominal anggaran terpakai (Rp ${terpakai.toLocaleString('id-ID')})`
+      );
+    }
+
+    // 3. If komisiId or tahun changes, check duplicate constraints
+    if (updatedTahun !== existing.tahun || updatedKomisiId !== existing.komisiId) {
+      // Validate new Komisi if changed
+      if (input.komisiId && input.komisiId !== existing.komisiId) {
+        const newKomisi = await prisma.komisi.findUnique({
+          where: { id: input.komisiId },
+        });
+        if (!newKomisi) {
+          throw ApiError.notFound('Komisi baru tidak ditemukan');
+        }
+        if (newKomisi.parokiId !== parokiId) {
+          throw ApiError.forbidden('Komisi baru berada di luar paroki Anda');
+        }
+      }
+
+      // Check unique constraint duplicate
+      const duplicate = await prisma.anggaran.findFirst({
+        where: {
+          parokiId,
+          komisiId: updatedKomisiId,
+          tahun: updatedTahun,
+          id: { not: id },
+        },
+      });
+
+      if (duplicate) {
+        throw ApiError.badRequest(
+          `Anggaran untuk Komisi tersebut pada tahun ${updatedTahun} sudah dialokasikan`
+        );
+      }
+    }
+
+    // 4. Update in database
+    const newSisa = updatedPlafon - terpakai;
+    const updatedAnggaran = await prisma.anggaran.update({
+      where: { id },
+      data: {
+        tahun: input.tahun,
+        plafon: input.plafon,
+        sisa: newSisa,
+        kategori: input.kategori,
+        komisiId: input.komisiId,
+      },
+      include: {
+        komisi: true,
+      },
+    });
+
+    // 5. Record Audit Log
+    const formattedPlafon = new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0,
+    }).format(updatedPlafon);
+
+    await prisma.auditLog.create({
+      data: {
+        type: 'IN',
+        action: `Memperbarui alokasi anggaran Komisi ${updatedAnggaran.komisi.nama} tahun ${updatedAnggaran.tahun} senilai ${formattedPlafon}`,
+        amount: updatedPlafon,
+        actorId,
+        parokiId,
+      },
+    });
+
+    return updatedAnggaran;
+  }
+}
+
+
+--- FILE: src\modules\approval\approval.controller.ts ---
+import { Request, Response, NextFunction } from 'express';
+import { ApprovalService } from './approval.service';
+import { ApprovalStatus, Role } from '@prisma/client';
+
+export class ApprovalController {
+  static async getApprovals(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const actorId = req.user!.id;
+      const role = req.user!.role as Role;
+
+      const filters = {
+        status: req.query.status as ApprovalStatus | undefined,
+        search: req.query.search as string | undefined,
+      };
+
+      const approvals = await ApprovalService.getApprovals(
+        parokiId,
+        actorId,
+        role,
+        filters
+      );
+
+      res.status(200).json({
+        status: 'success',
+        data: {
+          approvals,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async createPengajuan(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const actorId = req.user!.id;
+
+      const newPengajuan = await ApprovalService.createPengajuan(
+        parokiId,
+        actorId,
+        req.body
+      );
+
+      res.status(201).json({
+        status: 'success',
+        message: 'Pengajuan proposal berhasil disimpan',
+        data: {
+          approval: newPengajuan,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async updateApprovalStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const actorId = req.user!.id;
+      const role = req.user!.role as Role;
+      const id = req.params.id as string;
+
+      const updated = await ApprovalService.updateApprovalStatus(
+        parokiId,
+        actorId,
+        role,
+        id,
+        req.body
+      );
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Status pengajuan berhasil diperbarui',
+        data: {
+          approval: updated,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+
+
+--- FILE: src\modules\approval\approval.routes.ts ---
+import { Router } from 'express';
+import { ApprovalController } from './approval.controller';
+import { authenticate } from '../../common/middleware/auth.middleware';
+import { authorize } from '../../common/guards/rbac.guard';
+import { validateRequest } from '../../common/middleware/validation.middleware';
+import {
+  createPengajuanSchema,
+  updateApprovalStatusSchema,
+  getApprovalsQuerySchema,
+} from './approval.schema';
+import { Role } from '@prisma/client';
+
+const router = Router();
+
+// Apply auth middleware globally
+router.use(authenticate);
+
+// Get approval list (scoped by Role & Paroki inside service)
+router.get(
+  '/',
+  authorize(Role.BENDAHARA, Role.PASTOR, Role.KETUA_KOMISI),
+  validateRequest(getApprovalsQuerySchema),
+  ApprovalController.getApprovals
+);
+
+// Submit a new proposal (Ketua Komisi only)
+router.post(
+  '/',
+  authorize(Role.KETUA_KOMISI),
+  validateRequest(createPengajuanSchema),
+  ApprovalController.createPengajuan
+);
+
+// Process state machine transitions
+router.patch(
+  '/:id/status',
+  authorize(Role.BENDAHARA, Role.PASTOR, Role.KETUA_KOMISI),
+  validateRequest(updateApprovalStatusSchema),
+  ApprovalController.updateApprovalStatus
+);
+
+export default router;
+
+
+--- FILE: src\modules\approval\approval.schema.ts ---
+import { z } from 'zod';
+import { ApprovalStatus } from '@prisma/client';
+
+export const createPengajuanSchema = z.object({
+  body: z.object({
+    judul: z.string().min(3, 'Judul must be at least 3 characters'),
+    nominal: z.number({ message: 'Nominal is required' }).min(1000, 'Nominal must be at least 1,000'),
+    tujuan: z.string().min(5, 'Tujuan must be at least 5 characters'),
+    anggaranId: z.string().uuid('Invalid Anggaran ID format'),
+  }),
+});
+
+export const updateApprovalStatusSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid proposal ID format'),
+  }),
+  body: z.object({
+    action: z.enum(['APPROVE', 'REJECT', 'REVISE', 'SUBMIT']),
+    catatan: z.string().optional(),
+  }),
+});
+
+export const getApprovalsQuerySchema = z.object({
+  query: z.object({
+    status: z.nativeEnum(ApprovalStatus).optional(),
+    search: z.string().optional(),
+  }),
+});
+
+export type CreatePengajuanInput = z.infer<typeof createPengajuanSchema>;
+export type UpdateApprovalStatusInput = z.infer<typeof updateApprovalStatusSchema>;
+export type GetApprovalsQueryInput = z.infer<typeof getApprovalsQuerySchema>;
+
+
+--- FILE: src\modules\approval\approval.service.ts ---
+import { prisma } from '../../config/database';
+import { ApiError } from '../../common/utils/api-error';
+import { Role, ApprovalStatus } from '@prisma/client';
+
+export class ApprovalService {
+  /**
+   * Get list of Pengajuan scoped to Paroki, with RBAC scoping
+   */
+  static async getApprovals(
+    parokiId: string,
+    actorId: string,
+    role: Role,
+    filters: {
+      status?: ApprovalStatus;
+      search?: string;
+    }
+  ) {
+    const whereClause: any = {
+      pemohon: {
+        parokiId,
+      },
+    };
+
+    // RBAC: KETUA_KOMISI can only see their own proposals
+    if (role === Role.KETUA_KOMISI) {
+      whereClause.pemohonId = actorId;
+    }
+
+    if (filters.status) {
+      whereClause.status = filters.status;
+    }
+
+    if (filters.search) {
+      whereClause.judul = {
+        contains: filters.search,
+        mode: 'insensitive',
+      };
+    }
+
+    return await prisma.pengajuan.findMany({
+      where: whereClause,
+      include: {
+        pemohon: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+        anggaran: {
+          include: {
+            komisi: true,
+          },
+        },
+        alur: {
+          include: {
+            pic: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+              },
+            },
+          },
+          orderBy: {
+            tanggal: 'asc',
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
+
+  /**
+   * Create a new Pengajuan
+   */
+  static async createPengajuan(
+    parokiId: string,
+    actorId: string,
+    input: {
+      judul: string;
+      nominal: number;
+      tujuan: string;
+      anggaranId: string;
+    }
+  ) {
+    // 1. Fetch Anggaran and check bounds
+    const anggaran = await prisma.anggaran.findUnique({
+      where: { id: input.anggaranId },
+      include: { komisi: true },
+    });
+
+    if (!anggaran) {
+      throw ApiError.notFound('Anggaran tidak ditemukan');
+    }
+
+    if (anggaran.parokiId !== parokiId) {
+      throw ApiError.forbidden('Anggaran berada di luar paroki Anda');
+    }
+
+    // 2. Validate nominal <= sisa budget
+    if (input.nominal > Number(anggaran.sisa)) {
+      throw ApiError.badRequest('Nominal pengajuan melebihi sisa anggaran yang tersedia');
+    }
+
+    // 3. Execute creation in transaction to ensure audit history consistency
+    return await prisma.$transaction(async (tx) => {
+      // Re-verify budget inside transaction lock (optional but recommended for concurrency)
+      const freshAnggaran = await tx.anggaran.findUnique({
+        where: { id: input.anggaranId },
+      });
+
+      if (!freshAnggaran) {
+        throw ApiError.notFound('Anggaran tidak ditemukan');
+      }
+
+      if (input.nominal > Number(freshAnggaran.sisa)) {
+        throw ApiError.badRequest('Nominal pengajuan melebihi sisa anggaran yang tersedia');
+      }
+
+      // Create Proposal
+      const newPengajuan = await tx.pengajuan.create({
+        data: {
+          judul: input.judul,
+          nominal: input.nominal,
+          tujuan: input.tujuan,
+          status: ApprovalStatus.MENUNGGU_VERIFIKASI,
+          komisiId: anggaran.komisiId,
+          anggaranId: input.anggaranId,
+          pemohonId: actorId,
+        },
+        include: {
+          pemohon: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+          anggaran: {
+            include: {
+              komisi: true,
+            },
+          },
+          alur: true,
+        },
+      });
+
+      // Log initial submission to Approval History
+      await tx.approvalHistory.create({
+        data: {
+          step: 'Pengajuan Baru',
+          action: 'SUBMIT',
+          catatan: 'Pengajuan diajukan oleh Ketua Komisi',
+          picId: actorId,
+          pengajuanId: newPengajuan.id,
+        },
+      });
+
+      // Log to Audit Trail
+      const formattedNominal = new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        minimumFractionDigits: 0,
+      }).format(input.nominal);
+
+      await tx.auditLog.create({
+        data: {
+          type: 'APPROVE',
+          action: `Ketua Komisi membuat pengajuan "${input.judul}" senilai ${formattedNominal}`,
+          amount: input.nominal,
+          actorId,
+          parokiId,
+        },
+      });
+
+      return newPengajuan;
+    });
+  }
+
+  /**
+   * Update Proposal Status / Process State Machine Transitions
+   */
+  static async updateApprovalStatus(
+    parokiId: string,
+    actorId: string,
+    role: Role,
+    id: string,
+    input: {
+      action: 'APPROVE' | 'REJECT' | 'REVISE' | 'SUBMIT';
+      catatan?: string;
+    }
+  ) {
+    // 1. Fetch current Pengajuan and verify Paroki scope
+    const pengajuan = await prisma.pengajuan.findUnique({
+      where: { id },
+      include: {
+        pemohon: true,
+        anggaran: true,
+      },
+    });
+
+    if (!pengajuan) {
+      throw ApiError.notFound('Pengajuan tidak ditemukan');
+    }
+
+    if (pengajuan.pemohon.parokiId !== parokiId) {
+      throw ApiError.forbidden('Anda tidak memiliki akses ke pengajuan ini');
+    }
+
+    let newStatus: ApprovalStatus;
+    let approvalStep: string;
+
+    // 2. State machine guards based on actor role
+    if (role === Role.BENDAHARA) {
+      if (pengajuan.status !== ApprovalStatus.MENUNGGU_VERIFIKASI) {
+        throw ApiError.badRequest(
+          `Pengajuan tidak dapat diproses oleh Bendahara karena berstatus ${pengajuan.status}`
+        );
+      }
+
+      if (input.action === 'APPROVE') {
+        // Threshold: <= Rp 500k auto approve, > Rp 500k escalate to Pastor
+        const nominal = Number(pengajuan.nominal);
+        if (nominal <= 500000) {
+          newStatus = ApprovalStatus.DISETUJUI;
+        } else {
+          newStatus = ApprovalStatus.MENUNGGU_PERSETUJUAN;
+        }
+      } else if (input.action === 'REJECT') {
+        newStatus = ApprovalStatus.DITOLAK;
+      } else if (input.action === 'REVISE') {
+        newStatus = ApprovalStatus.REVISI;
+      } else {
+        throw ApiError.badRequest(`Aksi ${input.action} tidak didukung untuk Bendahara`);
+      }
+
+      approvalStep = 'Verifikasi Bendahara';
+    } else if (role === Role.PASTOR) {
+      if (pengajuan.status !== ApprovalStatus.MENUNGGU_PERSETUJUAN) {
+        throw ApiError.badRequest(
+          `Pengajuan tidak dapat diproses oleh Pastor karena berstatus ${pengajuan.status}`
+        );
+      }
+
+      if (input.action === 'APPROVE') {
+        newStatus = ApprovalStatus.DISETUJUI;
+      } else if (input.action === 'REJECT') {
+        newStatus = ApprovalStatus.DITOLAK;
+      } else if (input.action === 'REVISE') {
+        newStatus = ApprovalStatus.REVISI;
+      } else {
+        throw ApiError.badRequest(`Aksi ${input.action} tidak didukung untuk Pastor`);
+      }
+
+      approvalStep = 'Persetujuan Pastor';
+    } else if (role === Role.KETUA_KOMISI) {
+      if (pengajuan.status !== ApprovalStatus.REVISI) {
+        throw ApiError.badRequest(
+          `Resubmit hanya dapat dilakukan pada pengajuan yang berstatus REVISI`
+        );
+      }
+
+      if (pengajuan.pemohonId !== actorId) {
+        throw ApiError.forbidden('Hanya pemohon asli yang dapat melakukan resubmit');
+      }
+
+      if (input.action !== 'SUBMIT') {
+        throw ApiError.badRequest(`Ketua Komisi hanya dapat melakukan aksi SUBMIT pada tahap resubmit`);
+      }
+
+      newStatus = ApprovalStatus.MENUNGGU_VERIFIKASI;
+      approvalStep = 'Resubmit Ketua Komisi';
+    } else {
+      throw ApiError.forbidden('Anda tidak memiliki wewenang untuk memproses pengajuan ini');
+    }
+
+    // 3. Execute update in transaction to guarantee consistency
+    return await prisma.$transaction(async (tx) => {
+      // Re-verify remaining budget balance to prevent over-allocation if status changes back to flow
+      if (newStatus === ApprovalStatus.DISETUJUI || newStatus === ApprovalStatus.MENUNGGU_VERIFIKASI) {
+        const freshAnggaran = await tx.anggaran.findUnique({
+          where: { id: pengajuan.anggaranId },
+        });
+
+        if (!freshAnggaran) {
+          throw ApiError.notFound('Anggaran tidak ditemukan');
+        }
+
+        if (Number(pengajuan.nominal) > Number(freshAnggaran.sisa)) {
+          throw ApiError.badRequest('Nominal pengajuan melebihi sisa anggaran yang tersedia');
+        }
+      }
+
+      // Update Pengajuan status
+      const updated = await tx.pengajuan.update({
+        where: { id },
+        data: { status: newStatus },
+        include: {
+          pemohon: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+          anggaran: {
+            include: {
+              komisi: true,
+            },
+          },
+          alur: {
+            include: {
+              pic: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  role: true,
+                },
+              },
+            },
+            orderBy: {
+              tanggal: 'asc',
+            },
+          },
+        },
+      });
+
+      // Write Approval History step
+      await tx.approvalHistory.create({
+        data: {
+          step: approvalStep,
+          action: input.action,
+          catatan: input.catatan || null,
+          picId: actorId,
+          pengajuanId: id,
+        },
+      });
+
+      // Log Audit Trail
+      const formattedNominal = new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        minimumFractionDigits: 0,
+      }).format(Number(pengajuan.nominal));
+
+      let auditAction = '';
+      let auditType = '';
+
+      if (input.action === 'APPROVE') {
+        auditType = 'APPROVE';
+        auditAction = `${role === Role.BENDAHARA ? 'Bendahara memverifikasi' : 'Pastor menyetujui'} pengajuan "${pengajuan.judul}" senilai ${formattedNominal}. Status: ${newStatus}`;
+      } else if (input.action === 'REJECT') {
+        auditType = 'REJECT';
+        auditAction = `${role === Role.BENDAHARA ? 'Bendahara menolak' : 'Pastor menolak'} pengajuan "${pengajuan.judul}" senilai ${formattedNominal}`;
+      } else if (input.action === 'REVISE') {
+        auditType = 'REVISE';
+        auditAction = `${role === Role.BENDAHARA ? 'Bendahara meminta revisi' : 'Pastor meminta revisi'} pengajuan "${pengajuan.judul}" senilai ${formattedNominal}`;
+      } else if (input.action === 'SUBMIT') {
+        auditType = 'APPROVE';
+        auditAction = `Ketua Komisi melakukan resubmit pengajuan "${pengajuan.judul}" senilai ${formattedNominal}`;
+      }
+
+      await tx.auditLog.create({
+        data: {
+          type: auditType || 'APPROVE',
+          action: auditAction,
+          amount: pengajuan.nominal,
+          actorId,
+          parokiId,
+        },
+      });
+
+      return updated;
+    });
+  }
+}
+
+
+--- FILE: src\modules\auth\auth.controller.ts ---
+import { Request, Response, NextFunction } from 'express';
+import { AuthService } from './auth.service';
+
+export class AuthController {
+  static async login(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await AuthService.login(req.body);
+      res.status(200).json({
+        status: 'success',
+        message: 'Login successful',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async refresh(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await AuthService.refresh(req.body.refreshToken);
+      res.status(200).json({
+        status: 'success',
+        message: 'Token refreshed successfully',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async me(req: Request, res: Response, next: NextFunction) {
+    try {
+      // req.user is guaranteed to be set if the authenticate middleware runs
+      const userId = req.user!.id;
+      const userProfile = await AuthService.getCurrentUser(userId);
+      
+      res.status(200).json({
+        status: 'success',
+        data: {
+          user: userProfile,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+
+
+--- FILE: src\modules\auth\auth.routes.ts ---
+import { Router } from 'express';
+import { AuthController } from './auth.controller';
+import { validateRequest } from '../../common/middleware/validation.middleware';
+import { loginSchema, refreshSchema } from './auth.schema';
+import { authenticate } from '../../common/middleware/auth.middleware';
+
+const router = Router();
+
+router.post('/login', validateRequest(loginSchema), AuthController.login);
+router.post('/refresh', validateRequest(refreshSchema), AuthController.refresh);
+router.get('/me', authenticate, AuthController.me);
+
+export default router;
+
+
+--- FILE: src\modules\auth\auth.schema.ts ---
+import { z } from 'zod';
+
+export const loginSchema = z.object({
+  body: z.object({
+    email: z.string().email('Invalid email format'),
+    password: z.string().min(6, 'Password must be at least 6 characters'),
+  }),
+});
+
+export const refreshSchema = z.object({
+  body: z.object({
+    refreshToken: z.string().min(1, 'Refresh token is required'),
+  }),
+});
+
+export type LoginInput = z.infer<typeof loginSchema>;
+export type RefreshInput = z.infer<typeof refreshSchema>;
+
+
+--- FILE: src\modules\auth\auth.service.ts ---
+import bcrypt from 'bcryptjs';
+import { prisma } from '../../config/database';
+import { ApiError } from '../../common/utils/api-error';
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../common/utils/token.util';
+import { LoginInput } from './auth.schema';
+
+export class AuthService {
+  /**
+   * Log in user and generate access/refresh tokens
+   */
+  static async login(input: LoginInput['body']) {
+    const user = await prisma.user.findUnique({
+      where: { email: input.email },
+      include: { paroki: true },
+    });
+
+    if (!user) {
+      throw ApiError.badRequest('Invalid email or password');
+    }
+
+    if (!user.isActive) {
+      throw ApiError.forbidden('Your account has been deactivated. Please contact the administrator.');
+    }
+
+    // Compare passwords
+    const isPasswordValid = await bcrypt.compare(input.password, user.password);
+    if (!isPasswordValid) {
+      throw ApiError.badRequest('Invalid email or password');
+    }
+
+    // Generate tokens
+    const accessToken = signAccessToken({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      parokiId: user.parokiId,
+    });
+
+    const refreshToken = signRefreshToken({
+      id: user.id,
+    });
+
+    // Create an audit log for successful login
+    await prisma.auditLog.create({
+      data: {
+        type: 'AUTH',
+        action: `User ${user.name} logged in successfully`,
+        actorId: user.id,
+        parokiId: user.parokiId,
+      },
+    });
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        paroki: {
+          id: user.paroki.id,
+          nama: user.paroki.nama,
+        },
+      },
+      tokens: {
+        accessToken,
+        refreshToken,
+      },
+    };
+  }
+
+  /**
+   * Refresh access token using a valid refresh token
+   */
+  static async refresh(refreshToken: string) {
+    try {
+      const decoded = verifyRefreshToken(refreshToken);
+
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        include: { paroki: true },
+      });
+
+      if (!user) {
+        throw ApiError.unauthorized('User not found');
+      }
+
+      if (!user.isActive) {
+        throw ApiError.forbidden('User account is deactivated');
+      }
+
+      const newAccessToken = signAccessToken({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        parokiId: user.parokiId,
+      });
+
+      const newRefreshToken = signRefreshToken({
+        id: user.id,
+      });
+
+      return {
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken,
+      };
+    } catch (error) {
+      throw ApiError.unauthorized('Invalid or expired refresh token');
+    }
+  }
+
+  /**
+   * Get currently logged-in user profile details
+   */
+  static async getCurrentUser(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        paroki: {
+          select: {
+            id: true,
+            nama: true,
+            alamat: true,
+            keuskupan: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw ApiError.notFound('User not found');
+    }
+
+    if (!user.isActive) {
+      throw ApiError.forbidden('Account is deactivated');
+    }
+
+    // Exclude password
+    const { password, ...userProfile } = user;
+    return userProfile;
+  }
+}
+
+
+--- FILE: src\modules\kas-keluar\kas-keluar.controller.ts ---
+import { Request, Response, NextFunction } from 'express';
+import { KasKeluarService } from './kas-keluar.service';
+
+export class KasKeluarController {
+  static async getKasKeluar(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const filters = {
+        search: req.query.search as string | undefined,
+        kategori: req.query.kategori as string | undefined,
+        anggaranId: req.query.anggaranId as string | undefined,
+        startDate: req.query.startDate as Date | undefined,
+        endDate: req.query.endDate as Date | undefined,
+      };
+
+      const transactions = await KasKeluarService.getKasKeluar(parokiId, filters);
+
+      res.status(200).json({
+        status: 'success',
+        data: {
+          transactions,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async createKasKeluar(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const actorId = req.user!.id;
+
+      const newTransaction = await KasKeluarService.createKasKeluar(
+        parokiId,
+        actorId,
+        req.body,
+        req.file
+      );
+
+      res.status(201).json({
+        status: 'success',
+        message: 'Transaksi Kas Keluar berhasil dicatat',
+        data: {
+          transaction: newTransaction,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async updateKasKeluar(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const actorId = req.user!.id;
+      const id = req.params.id as string;
+
+      const updatedTransaction = await KasKeluarService.updateKasKeluar(
+        parokiId,
+        actorId,
+        id,
+        req.body,
+        req.file
+      );
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Transaksi Kas Keluar berhasil diperbarui',
+        data: {
+          transaction: updatedTransaction,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async deleteKasKeluar(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const actorId = req.user!.id;
+      const id = req.params.id as string;
+
+      const deletedTransaction = await KasKeluarService.deleteKasKeluar(
+        parokiId,
+        actorId,
+        id
+      );
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Transaksi Kas Keluar berhasil dihapus',
+        data: {
+          transaction: deletedTransaction,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+
+
+--- FILE: src\modules\kas-keluar\kas-keluar.routes.ts ---
+import { Router } from 'express';
+import { KasKeluarController } from './kas-keluar.controller';
+import { authenticate } from '../../common/middleware/auth.middleware';
+import { authorize } from '../../common/guards/rbac.guard';
+import { validateRequest } from '../../common/middleware/validation.middleware';
+import { multerUpload } from '../../common/middleware/upload.middleware';
+import {
+  createKasKeluarSchema,
+  updateKasKeluarSchema,
+  getKasKeluarQuerySchema,
+} from './kas-keluar.schema';
+import { Role } from '@prisma/client';
+
+const router = Router();
+
+// Apply auth middleware globally to all Kas Keluar routes
+router.use(authenticate);
+
+// Routes with specific RBAC guards and middlewares
+router.get(
+  '/',
+  authorize(Role.BENDAHARA, Role.KETUA_KOMISI),
+  validateRequest(getKasKeluarQuerySchema),
+  KasKeluarController.getKasKeluar
+);
+
+router.post(
+  '/',
+  authorize(Role.BENDAHARA, Role.KETUA_KOMISI),
+  multerUpload.single('file'),
+  validateRequest(createKasKeluarSchema),
+  KasKeluarController.createKasKeluar
+);
+
+router.put(
+  '/:id',
+  authorize(Role.BENDAHARA),
+  multerUpload.single('file'),
+  validateRequest(updateKasKeluarSchema),
+  KasKeluarController.updateKasKeluar
+);
+
+router.delete(
+  '/:id',
+  authorize(Role.BENDAHARA),
+  KasKeluarController.deleteKasKeluar
+);
+
+export default router;
+
+
+--- FILE: src\modules\kas-keluar\kas-keluar.schema.ts ---
+import { z } from 'zod';
+
+export const createKasKeluarSchema = z.object({
+  body: z.object({
+    tanggal: z.preprocess(
+      (val) => (typeof val === 'string' ? new Date(val) : val),
+      z.date({
+        message: 'Invalid date format',
+      })
+    ),
+    kategori: z.string().min(2, 'Kategori must be at least 2 characters'),
+    penerima: z.string().min(2, 'Penerima must be at least 2 characters'),
+    jumlah: z.preprocess(
+      (val) => (typeof val === 'string' ? Number(val) : val),
+      z.number({
+        message: 'Jumlah must be a positive number',
+      }).positive('Jumlah must be a positive number')
+    ),
+    anggaranId: z
+      .preprocess(
+        (val) => (val === '' || val === 'null' || val === 'undefined' ? undefined : val),
+        z.string().uuid('Invalid Anggaran ID format')
+      )
+      .optional(),
+  }),
+});
+
+export const updateKasKeluarSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid transaction ID format'),
+  }),
+  body: z.object({
+    tanggal: z.preprocess(
+      (val) => (typeof val === 'string' ? new Date(val) : val),
+      z.date({
+        message: 'Invalid date format',
+      })
+    ).optional(),
+    kategori: z.string().min(2, 'Kategori must be at least 2 characters').optional(),
+    penerima: z.string().min(2, 'Penerima must be at least 2 characters').optional(),
+    jumlah: z.preprocess(
+      (val) => (typeof val === 'string' ? Number(val) : val),
+      z.number().positive('Jumlah must be a positive number')
+    ).optional(),
+    anggaranId: z
+      .preprocess(
+        (val) => (val === '' || val === 'null' || val === 'undefined' ? null : val),
+        z.string().uuid('Invalid Anggaran ID format').nullable()
+      )
+      .optional(),
+  }),
+});
+
+export const getKasKeluarQuerySchema = z.object({
+  query: z.object({
+    search: z.string().optional(),
+    kategori: z.string().optional(),
+    anggaranId: z.string().uuid('Invalid Anggaran ID format').optional(),
+    startDate: z
+      .string()
+      .optional()
+      .transform((val) => {
+        if (!val) return undefined;
+        const date = new Date(val);
+        return isNaN(date.getTime()) ? undefined : date;
+      }),
+    endDate: z
+      .string()
+      .optional()
+      .transform((val) => {
+        if (!val) return undefined;
+        const date = new Date(val);
+        return isNaN(date.getTime()) ? undefined : date;
+      }),
+  }),
+});
+
+export type CreateKasKeluarInput = z.infer<typeof createKasKeluarSchema>;
+export type UpdateKasKeluarInput = z.infer<typeof updateKasKeluarSchema>;
+export type GetKasKeluarQueryInput = z.infer<typeof getKasKeluarQuerySchema>;
+
+
+--- FILE: src\modules\kas-keluar\kas-keluar.service.ts ---
+import { prisma } from '../../config/database';
+import { ApiError } from '../../common/utils/api-error';
+import fs from 'fs';
+import path from 'path';
+
+export class KasKeluarService {
+  /**
+   * Get list of Kas Keluar records scoped to Paroki with filters
+   */
+  static async getKasKeluar(
+    parokiId: string,
+    filters: {
+      search?: string;
+      kategori?: string;
+      anggaranId?: string;
+      startDate?: Date;
+      endDate?: Date;
+    }
+  ) {
+    const whereClause: any = {
+      parokiId,
+    };
+
+    if (filters.kategori) {
+      whereClause.kategori = filters.kategori;
+    }
+
+    if (filters.anggaranId) {
+      whereClause.anggaranId = filters.anggaranId;
+    }
+
+    if (filters.startDate || filters.endDate) {
+      whereClause.tanggal = {};
+      if (filters.startDate) {
+        whereClause.tanggal.gte = filters.startDate;
+      }
+      if (filters.endDate) {
+        whereClause.tanggal.lte = filters.endDate;
+      }
+    }
+
+    if (filters.search) {
+      whereClause.penerima = { contains: filters.search, mode: 'insensitive' };
+    }
+
+    return await prisma.kasKeluar.findMany({
+      where: whereClause,
+      include: {
+        attachment: true,
+        anggaran: {
+          include: {
+            komisi: true,
+          },
+        },
+      },
+      orderBy: [
+        { tanggal: 'desc' },
+        { createdAt: 'desc' },
+      ],
+    });
+  }
+
+  /**
+   * Create a new Kas Keluar record
+   */
+  static async createKasKeluar(
+    parokiId: string,
+    actorId: string,
+    input: {
+      tanggal: Date;
+      kategori: string;
+      penerima: string;
+      jumlah: number;
+      anggaranId?: string;
+    },
+    file?: Express.Multer.File
+  ) {
+    return await prisma.$transaction(async (tx) => {
+      let attachmentId: string | undefined = undefined;
+
+      // 1. Process budget check and deduction if anggaranId is supplied
+      if (input.anggaranId) {
+        const anggaran = await tx.anggaran.findUnique({
+          where: { id: input.anggaranId },
+        });
+
+        if (!anggaran) {
+          throw ApiError.notFound('Pos Anggaran tidak ditemukan');
+        }
+
+        if (anggaran.parokiId !== parokiId) {
+          throw ApiError.forbidden('Pos Anggaran berada di luar paroki Anda');
+        }
+
+        const remaining = Number(anggaran.plafon) - Number(anggaran.terpakai);
+        if (input.jumlah > remaining) {
+          throw ApiError.badRequest(
+            `Plafon anggaran tidak mencukupi. Sisa: Rp ${remaining.toLocaleString('id-ID')}, Dibutuhkan: Rp ${input.jumlah.toLocaleString('id-ID')}`
+          );
+        }
+
+        // Deduct from budget
+        const newTerpakai = Number(anggaran.terpakai) + input.jumlah;
+        const newSisa = Number(anggaran.plafon) - newTerpakai;
+
+        await tx.anggaran.update({
+          where: { id: input.anggaranId },
+          data: {
+            terpakai: newTerpakai,
+            sisa: newSisa,
+          },
+        });
+      }
+
+      // 2. Handle File Attachment
+      if (file) {
+        const isPdf = file.mimetype === 'application/pdf';
+        const newAttachment = await tx.attachment.create({
+          data: {
+            fileName: file.originalname,
+            fileType: isPdf ? 'PDF' : 'IMAGE',
+            fileUrl: `/uploads/${file.filename}`,
+            fileSize: file.size,
+          },
+        });
+        attachmentId = newAttachment.id;
+      }
+
+      // 3. Create Kas Keluar record
+      const newTransaction = await tx.kasKeluar.create({
+        data: {
+          tanggal: input.tanggal,
+          kategori: input.kategori,
+          penerima: input.penerima,
+          jumlah: input.jumlah,
+          status: 'Selesai',
+          anggaranId: input.anggaranId || null,
+          attachmentId: attachmentId || null,
+          parokiId,
+        },
+        include: {
+          attachment: true,
+          anggaran: true,
+        },
+      });
+
+      // 4. Create Audit Log
+      const formattedAmount = new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        minimumFractionDigits: 0,
+      }).format(input.jumlah);
+
+      await tx.auditLog.create({
+        data: {
+          type: 'OUT',
+          action: `Mencatat Kas Keluar untuk ${input.penerima} kategori ${input.kategori} senilai ${formattedAmount}`,
+          amount: input.jumlah,
+          actorId,
+          parokiId,
+        },
+      });
+
+      return newTransaction;
+    });
+  }
+
+  /**
+   * Update an existing Kas Keluar record
+   */
+  static async updateKasKeluar(
+    parokiId: string,
+    actorId: string,
+    id: string,
+    input: {
+      tanggal?: Date;
+      kategori?: string;
+      penerima?: string;
+      jumlah?: number;
+      anggaranId?: string | null;
+    },
+    file?: Express.Multer.File
+  ) {
+    return await prisma.$transaction(async (tx) => {
+      // 1. Fetch existing record and boundaries
+      const existing = await tx.kasKeluar.findUnique({
+        where: { id },
+        include: { attachment: true, anggaran: true },
+      });
+
+      if (!existing) {
+        throw ApiError.notFound('Transaksi Kas Keluar tidak ditemukan');
+      }
+
+      if (existing.parokiId !== parokiId) {
+        throw ApiError.forbidden('Anda tidak memiliki akses untuk mengubah transaksi ini');
+      }
+
+      const updatedJumlah = input.jumlah !== undefined ? input.jumlah : Number(existing.jumlah);
+      // Wait, Zod transform of null for anggaranId could be passed as input.anggaranId: null
+      const updatedAnggaranId = input.anggaranId !== undefined ? input.anggaranId : existing.anggaranId;
+
+      // 2. Budget adjustment logic if budget OR amount changed
+      const budgetOrAmountChanged =
+        updatedJumlah !== Number(existing.jumlah) || updatedAnggaranId !== existing.anggaranId;
+
+      if (budgetOrAmountChanged) {
+        // Step 2a: Revert old budget deduction if previously linked
+        if (existing.anggaranId) {
+          const oldAnggaran = await tx.anggaran.findUnique({
+            where: { id: existing.anggaranId },
+          });
+          if (oldAnggaran) {
+            const revertedTerpakai = Number(oldAnggaran.terpakai) - Number(existing.jumlah);
+            const revertedSisa = Number(oldAnggaran.plafon) - revertedTerpakai;
+
+            await tx.anggaran.update({
+              where: { id: oldAnggaran.id },
+              data: {
+                terpakai: revertedTerpakai,
+                sisa: revertedSisa,
+              },
+            });
+          }
+        }
+
+        // Step 2b: Apply new budget deduction if currently linked
+        if (updatedAnggaranId) {
+          const newAnggaran = await tx.anggaran.findUnique({
+            where: { id: updatedAnggaranId },
+          });
+
+          if (!newAnggaran) {
+            throw ApiError.notFound('Pos Anggaran baru tidak ditemukan');
+          }
+          if (newAnggaran.parokiId !== parokiId) {
+            throw ApiError.forbidden('Pos Anggaran baru berada di luar paroki Anda');
+          }
+
+          const remaining = Number(newAnggaran.plafon) - Number(newAnggaran.terpakai);
+          if (updatedJumlah > remaining) {
+            throw ApiError.badRequest(
+              `Plafon anggaran baru tidak mencukupi. Sisa: Rp ${remaining.toLocaleString('id-ID')}, Dibutuhkan: Rp ${updatedJumlah.toLocaleString('id-ID')}`
+            );
+          }
+
+          // Deduct budget
+          const newTerpakai = Number(newAnggaran.terpakai) + updatedJumlah;
+          const newSisa = Number(newAnggaran.plafon) - newTerpakai;
+
+          await tx.anggaran.update({
+            where: { id: updatedAnggaranId },
+            data: {
+              terpakai: newTerpakai,
+              sisa: newSisa,
+            },
+          });
+        }
+      }
+
+      // 3. Handle File Attachment updates
+      let attachmentId = existing.attachmentId;
+      let fileToDelete: string | null = null;
+
+      if (file) {
+        // Schedule old file for physical deletion
+        if (existing.attachment) {
+          fileToDelete = existing.attachment.fileUrl;
+        }
+
+        // Save new attachment
+        const isPdf = file.mimetype === 'application/pdf';
+        const newAttachment = await tx.attachment.create({
+          data: {
+            fileName: file.originalname,
+            fileType: isPdf ? 'PDF' : 'IMAGE',
+            fileUrl: `/uploads/${file.filename}`,
+            fileSize: file.size,
+          },
+        });
+        attachmentId = newAttachment.id;
+      }
+
+      // 4. Update transaction
+      const updated = await tx.kasKeluar.update({
+        where: { id },
+        data: {
+          tanggal: input.tanggal,
+          kategori: input.kategori,
+          penerima: input.penerima,
+          jumlah: input.jumlah,
+          anggaranId: updatedAnggaranId,
+          attachmentId,
+        },
+        include: { attachment: true, anggaran: true },
+      });
+
+      // 5. Clean up old attachment file and DB record if overridden
+      if (file && existing.attachment) {
+        await tx.attachment.delete({
+          where: { id: existing.attachment.id },
+        });
+
+        if (fileToDelete) {
+          const relativePath = fileToDelete.startsWith('/') ? fileToDelete.substring(1) : fileToDelete;
+          const fullPath = path.join(process.cwd(), relativePath);
+          try {
+            if (fs.existsSync(fullPath)) {
+              fs.unlinkSync(fullPath);
+            }
+          } catch (err) {
+            console.error('Failed to delete physical file during update:', err);
+          }
+        }
+      }
+
+      // 6. Write Audit Log
+      const formattedAmount = new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        minimumFractionDigits: 0,
+      }).format(updatedJumlah);
+
+      const targetPenerima = input.penerima || existing.penerima;
+      await tx.auditLog.create({
+        data: {
+          type: 'OUT',
+          action: `Memperbarui transaksi Kas Keluar: ${targetPenerima} senilai ${formattedAmount}`,
+          amount: updatedJumlah,
+          actorId,
+          parokiId,
+        },
+      });
+
+      return updated;
+    });
+  }
+
+  /**
+   * Delete a Kas Keluar record
+   */
+  static async deleteKasKeluar(parokiId: string, actorId: string, id: string) {
+    return await prisma.$transaction(async (tx) => {
+      // 1. Fetch transaction and boundaries
+      const existing = await tx.kasKeluar.findUnique({
+        where: { id },
+        include: { attachment: true, anggaran: true },
+      });
+
+      if (!existing) {
+        throw ApiError.notFound('Transaksi Kas Keluar tidak ditemukan');
+      }
+
+      if (existing.parokiId !== parokiId) {
+        throw ApiError.forbidden('Anda tidak memiliki akses untuk menghapus transaksi ini');
+      }
+
+      // 2. Revert budget deduction if linked
+      if (existing.anggaranId) {
+        const oldAnggaran = await tx.anggaran.findUnique({
+          where: { id: existing.anggaranId },
+        });
+        if (oldAnggaran) {
+          const revertedTerpakai = Number(oldAnggaran.terpakai) - Number(existing.jumlah);
+          const revertedSisa = Number(oldAnggaran.plafon) - revertedTerpakai;
+
+          await tx.anggaran.update({
+            where: { id: oldAnggaran.id },
+            data: {
+              terpakai: revertedTerpakai,
+              sisa: revertedSisa,
+            },
+          });
+        }
+      }
+
+      // 3. Delete Kas Keluar record
+      await tx.kasKeluar.delete({
+        where: { id },
+      });
+
+      // 4. Delete attachment file and record if any
+      if (existing.attachment) {
+        await tx.attachment.delete({
+          where: { id: existing.attachment.id },
+        });
+
+        const fileToDelete = existing.attachment.fileUrl;
+        const relativePath = fileToDelete.startsWith('/') ? fileToDelete.substring(1) : fileToDelete;
+        const fullPath = path.join(process.cwd(), relativePath);
+        try {
+          if (fs.existsSync(fullPath)) {
+            fs.unlinkSync(fullPath);
+          }
+        } catch (err) {
+          console.error('Failed to delete physical file during deletion:', err);
+        }
+      }
+
+      // 5. Write Audit Log
+      const formattedAmount = new Intl.NumberFormat('id-ID', {
+        style: 'currency',
+        currency: 'IDR',
+        minimumFractionDigits: 0,
+      }).format(Number(existing.jumlah));
+
+      await tx.auditLog.create({
+        data: {
+          type: 'OUT',
+          action: `Menghapus transaksi Kas Keluar: ${existing.penerima} yang bernilai ${formattedAmount}`,
+          amount: existing.jumlah,
+          actorId,
+          parokiId,
+        },
+      });
+
+      return existing;
+    });
+  }
+}
+
+
+--- FILE: src\modules\kas-masuk\kas-masuk.controller.ts ---
+import { Request, Response, NextFunction } from 'express';
+import { KasMasukService } from './kas-masuk.service';
+
+export class KasMasukController {
+  static async getKasMasuk(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const filters = {
+        search: req.query.search as string | undefined,
+        kategori: req.query.kategori as string | undefined,
+        startDate: req.query.startDate as Date | undefined,
+        endDate: req.query.endDate as Date | undefined,
+      };
+
+      const transactions = await KasMasukService.getKasMasuk(parokiId, filters);
+
+      res.status(200).json({
+        status: 'success',
+        data: {
+          transactions,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async createKasMasuk(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const actorId = req.user!.id;
+
+      const newTransaction = await KasMasukService.createKasMasuk(
+        parokiId,
+        actorId,
+        req.body
+      );
+
+      res.status(201).json({
+        status: 'success',
+        message: 'Transaksi Kas Masuk berhasil dicatat',
+        data: {
+          transaction: newTransaction,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async updateKasMasuk(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const actorId = req.user!.id;
+      const id = req.params.id as string;
+
+      const updatedTransaction = await KasMasukService.updateKasMasuk(
+        parokiId,
+        actorId,
+        id,
+        req.body
+      );
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Transaksi Kas Masuk berhasil diperbarui',
+        data: {
+          transaction: updatedTransaction,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async deleteKasMasuk(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const actorId = req.user!.id;
+      const id = req.params.id as string;
+
+      const deletedTransaction = await KasMasukService.deleteKasMasuk(
+        parokiId,
+        actorId,
+        id
+      );
+
+      res.status(200).json({
+        status: 'success',
+        message: 'Transaksi Kas Masuk berhasil dihapus',
+        data: {
+          transaction: deletedTransaction,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+
+
+--- FILE: src\modules\kas-masuk\kas-masuk.routes.ts ---
+import { Router } from 'express';
+import { KasMasukController } from './kas-masuk.controller';
+import { authenticate } from '../../common/middleware/auth.middleware';
+import { authorize } from '../../common/guards/rbac.guard';
+import { validateRequest } from '../../common/middleware/validation.middleware';
+import {
+  createKasMasukSchema,
+  updateKasMasukSchema,
+  getKasMasukQuerySchema,
+} from './kas-masuk.schema';
+import { Role } from '@prisma/client';
+
+const router = Router();
+
+// Apply auth middleware globally to all Kas Masuk routes
+router.use(authenticate);
+
+// Routes with specific RBAC guards
+router.get(
+  '/',
+  authorize(Role.BENDAHARA, Role.SEKRETARIAT),
+  validateRequest(getKasMasukQuerySchema),
+  KasMasukController.getKasMasuk
+);
+
+router.post(
+  '/',
+  authorize(Role.BENDAHARA, Role.SEKRETARIAT),
+  validateRequest(createKasMasukSchema),
+  KasMasukController.createKasMasuk
+);
+
+router.put(
+  '/:id',
+  authorize(Role.BENDAHARA, Role.SEKRETARIAT),
+  validateRequest(updateKasMasukSchema),
+  KasMasukController.updateKasMasuk
+);
+
+router.delete(
+  '/:id',
+  authorize(Role.BENDAHARA),
+  KasMasukController.deleteKasMasuk
+);
+
+export default router;
+
+
+--- FILE: src\modules\kas-masuk\kas-masuk.schema.ts ---
+import { z } from 'zod';
+
+const KategoriKasMasuk = ['Kolekte', 'Donasi', 'Persembahan', 'Pembangunan', 'Lainnya'] as const;
+
+export const createKasMasukSchema = z.object({
+  body: z.object({
+    tanggal: z.preprocess(
+      (val) => (typeof val === 'string' ? new Date(val) : val),
+      z.date({
+        message: 'Invalid date format',
+      })
+    ),
+    kategori: z.enum(KategoriKasMasuk, {
+      message: `Kategori must be one of: ${KategoriKasMasuk.join(', ')}`,
+    }),
+    sumber: z.string().min(2, 'Sumber must be at least 2 characters'),
+    jumlah: z.number({
+      message: 'Jumlah is required',
+    }).positive('Jumlah must be a positive number'),
+    keterangan: z.string().optional(),
+    status: z.string().optional().default('Selesai'),
+  }),
+});
+
+export const updateKasMasukSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid transaction ID format'),
+  }),
+  body: z.object({
+    tanggal: z.preprocess(
+      (val) => (typeof val === 'string' ? new Date(val) : val),
+      z.date({
+        message: 'Invalid date format',
+      })
+    ).optional(),
+    kategori: z.enum(KategoriKasMasuk, {
+      message: `Kategori must be one of: ${KategoriKasMasuk.join(', ')}`,
+    }).optional(),
+    sumber: z.string().min(2, 'Sumber must be at least 2 characters').optional(),
+    jumlah: z.number().positive('Jumlah must be a positive number').optional(),
+    keterangan: z.string().optional(),
+    status: z.string().optional(),
+  }),
+});
+
+export const getKasMasukQuerySchema = z.object({
+  query: z.object({
+    search: z.string().optional(),
+    kategori: z.string().optional(),
+    startDate: z
+      .string()
+      .optional()
+      .transform((val) => {
+        if (!val) return undefined;
+        const date = new Date(val);
+        return isNaN(date.getTime()) ? undefined : date;
+      }),
+    endDate: z
+      .string()
+      .optional()
+      .transform((val) => {
+        if (!val) return undefined;
+        const date = new Date(val);
+        return isNaN(date.getTime()) ? undefined : date;
+      }),
+  }),
+});
+
+export type CreateKasMasukInput = z.infer<typeof createKasMasukSchema>;
+export type UpdateKasMasukInput = z.infer<typeof updateKasMasukSchema>;
+export type GetKasMasukQueryInput = z.infer<typeof getKasMasukQuerySchema>;
+
+
+--- FILE: src\modules\kas-masuk\kas-masuk.service.ts ---
+import { prisma } from '../../config/database';
+import { ApiError } from '../../common/utils/api-error';
+
+export class KasMasukService {
+  /**
+   * Get list of Kas Masuk records scoped to Paroki with filters
+   */
+  static async getKasMasuk(
+    parokiId: string,
+    filters: {
+      search?: string;
+      kategori?: string;
+      startDate?: Date;
+      endDate?: Date;
+    }
+  ) {
+    const whereClause: any = {
+      parokiId,
+    };
+
+    if (filters.kategori) {
+      whereClause.kategori = filters.kategori;
+    }
+
+    if (filters.startDate || filters.endDate) {
+      whereClause.tanggal = {};
+      if (filters.startDate) {
+        whereClause.tanggal.gte = filters.startDate;
+      }
+      if (filters.endDate) {
+        whereClause.tanggal.lte = filters.endDate;
+      }
+    }
+
+    if (filters.search) {
+      whereClause.OR = [
+        { sumber: { contains: filters.search, mode: 'insensitive' } },
+        { keterangan: { contains: filters.search, mode: 'insensitive' } },
+      ];
+    }
+
+    return await prisma.kasMasuk.findMany({
+      where: whereClause,
+      orderBy: [
+        { tanggal: 'desc' },
+        { createdAt: 'desc' },
+      ],
+    });
+  }
+
+  /**
+   * Create a new Kas Masuk record
+   */
+  static async createKasMasuk(
+    parokiId: string,
+    actorId: string,
+    input: {
+      tanggal: Date;
+      kategori: 'Kolekte' | 'Donasi' | 'Persembahan' | 'Pembangunan' | 'Lainnya';
+      sumber: string;
+      jumlah: number;
+      keterangan?: string;
+      status?: string;
+    }
+  ) {
+    // 1. Create transaction in DB
+    const newTransaction = await prisma.kasMasuk.create({
+      data: {
+        tanggal: input.tanggal,
+        kategori: input.kategori,
+        sumber: input.sumber,
+        jumlah: input.jumlah,
+        keterangan: input.keterangan,
+        status: input.status || 'Selesai',
+        parokiId,
+      },
+    });
+
+    // 2. Create Audit Log entry
+    const formattedAmount = new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0,
+    }).format(input.jumlah);
+
+    await prisma.auditLog.create({
+      data: {
+        type: 'IN',
+        action: `Mencatat Kas Masuk kategori ${input.kategori} dari ${input.sumber} senilai ${formattedAmount}`,
+        amount: input.jumlah,
+        actorId,
+        parokiId,
+      },
+    });
+
+    return newTransaction;
+  }
+
+  /**
+   * Update an existing Kas Masuk record
+   */
+  static async updateKasMasuk(
+    parokiId: string,
+    actorId: string,
+    id: string,
+    input: {
+      tanggal?: Date;
+      kategori?: 'Kolekte' | 'Donasi' | 'Persembahan' | 'Pembangunan' | 'Lainnya';
+      sumber?: string;
+      jumlah?: number;
+      keterangan?: string;
+      status?: string;
+    }
+  ) {
+    // 1. Check existence and ownership boundary
+    const existing = await prisma.kasMasuk.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      throw ApiError.notFound('Transaksi Kas Masuk tidak ditemukan');
+    }
+
+    if (existing.parokiId !== parokiId) {
+      throw ApiError.forbidden('Anda tidak memiliki akses untuk mengubah transaksi ini');
+    }
+
+    // 2. Update in DB
+    const updated = await prisma.kasMasuk.update({
+      where: { id },
+      data: input,
+    });
+
+    // 3. Write Audit Log
+    const amountToLog = input.jumlah !== undefined ? input.jumlah : Number(existing.jumlah);
+    const sourceToLog = input.sumber || existing.sumber;
+    const formattedAmount = new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0,
+    }).format(amountToLog);
+
+    await prisma.auditLog.create({
+      data: {
+        type: 'IN',
+        action: `Memperbarui transaksi Kas Masuk: ${sourceToLog} senilai ${formattedAmount}`,
+        amount: amountToLog,
+        actorId,
+        parokiId,
+      },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Delete an existing Kas Masuk record
+   */
+  static async deleteKasMasuk(parokiId: string, actorId: string, id: string) {
+    // 1. Check existence and ownership boundary
+    const existing = await prisma.kasMasuk.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      throw ApiError.notFound('Transaksi Kas Masuk tidak ditemukan');
+    }
+
+    if (existing.parokiId !== parokiId) {
+      throw ApiError.forbidden('Anda tidak memiliki akses untuk menghapus transaksi ini');
+    }
+
+    // 2. Delete transaction from DB
+    await prisma.kasMasuk.delete({
+      where: { id },
+    });
+
+    // 3. Write Audit Log
+    const formattedAmount = new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0,
+    }).format(Number(existing.jumlah));
+
+    await prisma.auditLog.create({
+      data: {
+        type: 'IN',
+        action: `Menghapus transaksi Kas Masuk: ${existing.sumber} yang bernilai ${formattedAmount}`,
+        amount: existing.jumlah,
+        actorId,
+        parokiId,
+      },
+    });
+
+    return existing;
+  }
+}
+
+
+--- FILE: src\modules\profile\profile.controller.ts ---
+import { Request, Response, NextFunction } from 'express';
+import path from 'path';
+import { ProfileService } from './profile.service';
+
+/**
+ * ProfileController — HTTP Request Handler untuk Profil Mandiri.
+ *
+ * GRASP: Controller
+ * ProfileController bertanggung jawab pada:
+ * 1. Mengekstrak data dari HTTP request (userId dari JWT, file dari multer, body dari JSON).
+ * 2. Mendelegasikan logika bisnis ke ProfileService.
+ * 3. Memformat dan mengirimkan HTTP response yang konsisten.
+ *
+ * ProfileController TIDAK memiliki logika bisnis apa pun.
+ * Semua keputusan domain (validasi hash, audit log) ada di ProfileService.
+ */
+export class ProfileController {
+  /**
+   * PATCH /api/v1/profile/avatar
+   * Memperbarui foto profil pengguna yang sedang login.
+   *
+   * Middleware chain sebelum handler ini:
+   *   authenticate → multerUpload.single('file') → handler
+   *
+   * File yang di-upload oleh multer tersedia di req.file.
+   * URL avatar dikonstruksi dari BASE_URL server + path relatif uploads.
+   */
+  static async updateAvatar(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          status: 'error',
+          statusCode: 400,
+          message: 'File gambar avatar harus diunggah',
+        });
+      }
+
+      const userId = req.user!.id;
+
+      // Konstruksi URL avatar yang dapat diakses secara publik via endpoint /uploads/
+      // Format: /uploads/file-1234567890.jpg
+      const avatarUrl = `/uploads/${req.file.filename}`;
+
+      const updatedUser = await ProfileService.updateAvatar(userId, avatarUrl);
+
+      return res.status(200).json({
+        status: 'success',
+        message: 'Foto profil berhasil diperbarui',
+        data: {
+          user: updatedUser,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PUT /api/v1/profile/password
+   * Memperbarui kata sandi pengguna yang sedang login.
+   *
+   * Middleware chain sebelum handler ini:
+   *   authenticate → validateRequest(updatePasswordSchema) → handler
+   *
+   * Body yang sudah divalidasi Zod: { oldPassword, newPassword }
+   */
+  static async updatePassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user!.id;
+      const { oldPassword, newPassword } = req.body;
+
+      const result = await ProfileService.updatePassword(
+        userId,
+        oldPassword,
+        newPassword
+      );
+
+      return res.status(200).json({
+        status: 'success',
+        message: result.message,
+        data: null,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+
+
+--- FILE: src\modules\profile\profile.routes.ts ---
+import { Router } from 'express';
+import { ProfileController } from './profile.controller';
+import { authenticate } from '../../common/middleware/auth.middleware';
+import { validateRequest } from '../../common/middleware/validation.middleware';
+import { multerUpload } from '../../common/middleware/upload.middleware';
+import { updatePasswordSchema } from './profile.schema';
+
+/**
+ * Profile Router — Endpoint Profil Mandiri.
+ *
+ * GRASP: Indirection
+ * Router ini bertindak sebagai lapisan indirection antara HTTP routing
+ * Express dan ProfileController. Semua rute di sini membutuhkan autentikasi
+ * (authenticate middleware). Tidak ada otorisasi berbasis role (authorize)
+ * karena semua role berhak mengelola profil dirinya sendiri.
+ *
+ * Middleware chain per endpoint:
+ *
+ * PATCH /avatar:
+ *   authenticate           → Verifikasi JWT, inject req.user
+ *   multerUpload.single()  → Parse multipart/form-data, simpan file ke /uploads/
+ *   ProfileController      → Proses update avatarUrl di DB
+ *
+ * PUT /password:
+ *   authenticate           → Verifikasi JWT, inject req.user
+ *   validateRequest(schema)→ Validasi body { oldPassword, newPassword } via Zod
+ *   ProfileController      → Proses hash & update password di DB
+ */
+const router = Router();
+
+// Semua rute profil membutuhkan autentikasi JWT yang valid
+router.use(authenticate);
+
+// PATCH /api/v1/profile/avatar
+// Gunakan multerUpload.single('file') untuk menghandle upload file tunggal.
+// Field name 'file' harus cocok dengan field name di FormData dari frontend.
+router.patch(
+  '/avatar',
+  multerUpload.single('file'),
+  ProfileController.updateAvatar
+);
+
+// PUT /api/v1/profile/password
+// Validasi body dengan updatePasswordSchema sebelum menyentuh database.
+router.put(
+  '/password',
+  validateRequest(updatePasswordSchema),
+  ProfileController.updatePassword
+);
+
+export default router;
+
+
+--- FILE: src\modules\profile\profile.schema.ts ---
+import { z } from 'zod';
+
+/**
+ * Schema validasi untuk endpoint PUT /api/v1/profile/password.
+ *
+ * Kebijakan keamanan:
+ * - oldPassword wajib dan minimal 6 karakter.
+ * - newPassword wajib dan minimal 6 karakter.
+ * - newPassword dan oldPassword tidak boleh identik (hindari no-op mutation).
+ * - Semua validasi dilakukan di backend — frontend validation hanya untuk UX,
+ *   bukan sebagai lapisan keamanan utama.
+ */
+export const updatePasswordSchema = z.object({
+  body: z
+    .object({
+      oldPassword: z.string().min(6, 'Kata sandi lama harus minimal 6 karakter'),
+      newPassword: z.string().min(6, 'Kata sandi baru harus minimal 6 karakter'),
+    })
+    .refine((data) => data.oldPassword !== data.newPassword, {
+      message: 'Kata sandi baru tidak boleh sama dengan kata sandi lama',
+      path: ['newPassword'],
+    }),
+});
+
+export type UpdatePasswordInput = z.infer<typeof updatePasswordSchema>;
+
+
+--- FILE: src\modules\profile\profile.service.ts ---
+import bcrypt from 'bcryptjs';
+import { prisma } from '../../config/database';
+import { ApiError } from '../../common/utils/api-error';
+
+/**
+ * ProfileService — Business Logic untuk Manajemen Profil Mandiri.
+ *
+ * GRASP: Information Expert
+ * ProfileService adalah satu-satunya objek yang berhak mengakses dan
+ * memodifikasi data profil pengguna (avatarUrl, password). Ia memiliki
+ * semua informasi yang dibutuhkan untuk melakukan operasi ini secara aman.
+ *
+ * KEBIJAKAN DATA INTEGRITY (Audit Trail Protection):
+ * Field READ-ONLY yang TIDAK BOLEH dimodifikasi oleh service ini:
+ *   - name     → pilar identitas di AuditLog.action dan ApprovalHistory
+ *   - email    → unique identifier untuk login dan audit record
+ *   - role     → RBAC gate untuk seluruh sistem otorisasi
+ *   - parokiId → batas yurisdiksi data paroki
+ *
+ * Field EDITABLE yang BOLEH dimodifikasi oleh service ini:
+ *   - avatarUrl → representasi visual, tidak memengaruhi audit trail
+ *   - password  → autentikasi, diubah dengan verifikasi hash bcrypt
+ */
+export class ProfileService {
+  /**
+   * Update URL avatar profil pengguna.
+   * avatarUrl disimpan sebagai path relatif URL yang dapat diakses
+   * melalui endpoint static `/uploads/` di Express.
+   *
+   * @param userId - ID pengguna yang sedang login (dari req.user.id)
+   * @param avatarUrl - URL lengkap atau path relatif file avatar yang di-upload
+   * @returns Objek user yang diperbarui (tanpa field password)
+   */
+  static async updateAvatar(userId: string, avatarUrl: string) {
+    // Pastikan user exist sebelum update
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw ApiError.notFound('Akun pengguna tidak ditemukan');
+    }
+
+    if (!user.isActive) {
+      throw ApiError.forbidden('Akun pengguna tidak aktif');
+    }
+
+    // Update hanya kolom avatarUrl — kolom lain tidak tersentuh
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        avatarUrl: true,
+        isActive: true,
+        parokiId: true,
+        createdAt: true,
+        updatedAt: true,
+        paroki: {
+          select: {
+            id: true,
+            nama: true,
+          },
+        },
+      },
+    });
+
+    // Catat perubahan avatar ke audit log untuk traceability
+    await prisma.auditLog.create({
+      data: {
+        type: 'AUTH',
+        action: `User ${updatedUser.name} memperbarui foto profil`,
+        actorId: userId,
+        parokiId: updatedUser.parokiId,
+      },
+    });
+
+    return updatedUser;
+  }
+
+  /**
+   * Ubah kata sandi pengguna dengan verifikasi bcrypt pada sandi lama.
+   *
+   * Alur keamanan:
+   * 1. Ambil user beserta hash password dari DB.
+   * 2. Bandingkan oldPassword dengan hash via bcrypt.compare().
+   * 3. Jika tidak cocok → throw 400 Bad Request (pesan generik untuk hindari enumeration).
+   * 4. Hash newPassword dengan bcrypt salt 12 (lebih kuat dari default 10).
+   * 5. Update kolom password di DB.
+   * 6. Catat ke audit log.
+   *
+   * @param userId    - ID pengguna yang sedang login
+   * @param oldPassword - Kata sandi lama dalam plaintext (dari request body)
+   * @param newPassword - Kata sandi baru dalam plaintext (dari request body)
+   * @returns Object konfirmasi sukses (tidak mengembalikan data sensitif)
+   */
+  static async updatePassword(
+    userId: string,
+    oldPassword: string,
+    newPassword: string
+  ) {
+    // 1. Ambil user dengan password hash — field yang di-exclude di endpoint lain
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw ApiError.notFound('Akun pengguna tidak ditemukan');
+    }
+
+    if (!user.isActive) {
+      throw ApiError.forbidden('Akun pengguna tidak aktif');
+    }
+
+    // 2. Verifikasi kata sandi lama menggunakan bcrypt
+    const isOldPasswordValid = await bcrypt.compare(oldPassword, user.password);
+    if (!isOldPasswordValid) {
+      // Pesan generik: hindari memberikan informasi tentang validitas password lama
+      throw ApiError.badRequest('Kata sandi lama yang Anda masukkan tidak sesuai');
+    }
+
+    // 3. Hash kata sandi baru dengan salt 12 (lebih kuat dari default 10)
+    const hashedNewPassword = await bcrypt.hash(newPassword, 12);
+
+    // 4. Update hanya kolom password — kolom lain tidak tersentuh
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedNewPassword },
+    });
+
+    // 5. Catat ke audit log untuk keamanan
+    await prisma.auditLog.create({
+      data: {
+        type: 'AUTH',
+        action: `User ${user.name} mengubah kata sandi akun`,
+        actorId: userId,
+        parokiId: user.parokiId,
+      },
+    });
+
+    return { message: 'Kata sandi berhasil diperbarui' };
+  }
+}
+
+
+--- FILE: src\modules\users\users.controller.ts ---
+import { Request, Response, NextFunction } from 'express';
+import { UsersService } from './users.service';
+import { Role } from '@prisma/client';
+
+export class UsersController {
+  static async getUsers(req: Request, res: Response, next: NextFunction) {
+    try {
+      // req.user is guaranteed to be set by the authentication middleware
+      const parokiId = req.user!.parokiId;
+      const filters = {
+        search: req.query.search as string | undefined,
+        role: req.query.role as Role | undefined,
+        // isActive is already transformed to boolean or undefined by zod validation middleware
+        isActive: req.query.isActive as boolean | undefined,
+      };
+
+      const users = await UsersService.getUsers(parokiId, filters);
+
+      res.status(200).json({
+        status: 'success',
+        data: {
+          users,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async createUser(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const actorId = req.user!.id;
+
+      const newUser = await UsersService.createUser(parokiId, actorId, req.body);
+
+      res.status(201).json({
+        status: 'success',
+        message: 'User created successfully',
+        data: {
+          user: newUser,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async toggleUserStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const actorId = req.user!.id;
+      const targetId = req.params.id as string;
+      const { isActive } = req.body;
+
+      const updatedUser = await UsersService.toggleUserStatus(
+        parokiId,
+        actorId,
+        targetId,
+        isActive
+      );
+
+      res.status(200).json({
+        status: 'success',
+        message: `User status updated successfully`,
+        data: {
+          user: updatedUser,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+
+
+--- FILE: src\modules\users\users.routes.ts ---
+import { Router } from 'express';
+import { UsersController } from './users.controller';
+import { authenticate } from '../../common/middleware/auth.middleware';
+import { authorize } from '../../common/guards/rbac.guard';
+import { validateRequest } from '../../common/middleware/validation.middleware';
+import {
+  createUserSchema,
+  toggleUserStatusSchema,
+  getUsersQuerySchema,
+} from './users.schema';
+import { Role } from '@prisma/client';
+
+const router = Router();
+
+// Apply auth middlewares globally to all user routes
+router.use(authenticate);
+router.use(authorize(Role.SUPER_ADMIN));
+
+// Routes
+router.get('/', validateRequest(getUsersQuerySchema), UsersController.getUsers);
+router.post('/', validateRequest(createUserSchema), UsersController.createUser);
+router.patch('/:id/status', validateRequest(toggleUserStatusSchema), UsersController.toggleUserStatus);
+
+export default router;
+
+
+--- FILE: src\modules\users\users.schema.ts ---
+import { z } from 'zod';
+import { Role } from '@prisma/client';
+
+export const createUserSchema = z.object({
+  body: z.object({
+    email: z.string().email('Invalid email format'),
+    password: z.string().min(6, 'Password must be at least 6 characters'),
+    name: z.string().min(2, 'Name must be at least 2 characters'),
+    role: z.nativeEnum(Role, {
+      message: 'Invalid role. Must be one of the defined system roles',
+    }),
+    isActive: z.boolean().optional(),
+  }),
+});
+
+export const toggleUserStatusSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid user ID format'),
+  }),
+  body: z.object({
+    isActive: z.boolean({
+      message: 'isActive status is required',
+    }),
+  }),
+});
+
+export const getUsersQuerySchema = z.object({
+  query: z.object({
+    search: z.string().optional(),
+    role: z.nativeEnum(Role).optional(),
+    isActive: z
+      .string()
+      .optional()
+      .transform((val) => {
+        if (val === 'true') return true;
+        if (val === 'false') return false;
+        return undefined;
+      }),
+  }),
+});
+
+export type CreateUserInput = z.infer<typeof createUserSchema>;
+export type ToggleUserStatusInput = z.infer<typeof toggleUserStatusSchema>;
+export type GetUsersQueryInput = z.infer<typeof getUsersQuerySchema>;
+
+
+--- FILE: src\modules\users\users.service.ts ---
+import bcrypt from 'bcryptjs';
+import { prisma } from '../../config/database';
+import { ApiError } from '../../common/utils/api-error';
+import { Role } from '@prisma/client';
+import { CreateUserInput } from './users.schema';
+
+export class UsersService {
+  /**
+   * Get list of users inside the same Paroki with filters
+   */
+  static async getUsers(
+    parokiId: string,
+    filters: { search?: string; role?: Role; isActive?: boolean }
+  ) {
+    const whereClause: any = {
+      parokiId,
+    };
+
+    // Apply active status filter
+    if (filters.isActive !== undefined) {
+      whereClause.isActive = filters.isActive;
+    }
+
+    // Apply role filter
+    if (filters.role !== undefined) {
+      whereClause.role = filters.role;
+    }
+
+    // Apply search filter (name or email, case-insensitive)
+    if (filters.search) {
+      whereClause.OR = [
+        { name: { contains: filters.search, mode: 'insensitive' } },
+        { email: { contains: filters.search, mode: 'insensitive' } },
+      ];
+    }
+
+    const users = await prisma.user.findMany({
+      where: whereClause,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        isActive: true,
+        parokiId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return users;
+  }
+
+  /**
+   * Register a new user inside the same Paroki
+   */
+  static async createUser(
+    parokiId: string,
+    actorId: string,
+    input: CreateUserInput['body']
+  ) {
+    // 1. Check if email is already taken
+    const existingUser = await prisma.user.findUnique({
+      where: { email: input.email },
+    });
+
+    if (existingUser) {
+      throw ApiError.badRequest('Email is already registered');
+    }
+
+    // 2. Hash password
+    const hashedPassword = await bcrypt.hash(input.password, 10);
+
+    // 3. Create user
+    const newUser = await prisma.user.create({
+      data: {
+        email: input.email,
+        name: input.name,
+        password: hashedPassword,
+        role: input.role,
+        isActive: input.isActive !== undefined ? input.isActive : true,
+        parokiId,
+      },
+    });
+
+    // 4. Log the action to audit logs
+    await prisma.auditLog.create({
+      data: {
+        type: 'AUTH',
+        action: `Created new user account: ${newUser.name} with role ${newUser.role}`,
+        actorId,
+        parokiId,
+      },
+    });
+
+    // 5. Exclude password from returned object
+    const { password, ...userWithoutPassword } = newUser;
+    return userWithoutPassword;
+  }
+
+  /**
+   * Toggle user active status
+   */
+  static async toggleUserStatus(
+    parokiId: string,
+    actorId: string,
+    targetId: string,
+    isActive: boolean
+  ) {
+    // 1. Prevent self-deactivation
+    if (actorId === targetId) {
+      throw ApiError.badRequest('You cannot modify your own active status');
+    }
+
+    // 2. Retrieve user and verify they exist and belong to the same Paroki
+    const user = await prisma.user.findUnique({
+      where: { id: targetId },
+    });
+
+    if (!user) {
+      throw ApiError.notFound('User account not found');
+    }
+
+    if (user.parokiId !== parokiId) {
+      throw ApiError.forbidden('You do not have permission to modify users outside your Paroki');
+    }
+
+    // 3. Update status
+    const updatedUser = await prisma.user.update({
+      where: { id: targetId },
+      data: { isActive },
+    });
+
+    // 4. Write audit log entry
+    await prisma.auditLog.create({
+      data: {
+        type: 'AUTH',
+        action: `Updated user ${updatedUser.name} active status to ${isActive ? 'ACTIVE' : 'INACTIVE'}`,
+        actorId,
+        parokiId,
+      },
+    });
+
+    // 5. Exclude password
+    const { password, ...userWithoutPassword } = updatedUser;
+    return userWithoutPassword;
+  }
+}
+
+
+--- FILE: src\server.ts ---
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import { env } from './config/env';
+import './config/database'; // Initializes and tests DB connection
+import { errorHandler } from './common/middleware/error.middleware';
+import authRouter from './modules/auth/auth.routes';
+import usersRouter from './modules/users/users.routes';
+import kasMasukRouter from './modules/kas-masuk/kas-masuk.routes';
+import kasKeluarRouter from './modules/kas-keluar/kas-keluar.routes';
+import anggaranRouter from './modules/anggaran/anggaran.routes';
+import approvalRouter from './modules/approval/approval.routes';
+import profileRouter from './modules/profile/profile.routes';
+import path from 'path';
+
+const app = express();
+
+// Security Middlewares
+app.use(helmet());
+app.use(cors());
+
+// Serve static uploads
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
+// Body Parsers
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// API Routes
+app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/users', usersRouter);
+app.use('/api/v1/kas/masuk', kasMasukRouter);
+app.use('/api/v1/kas/keluar', kasKeluarRouter);
+app.use('/api/v1/anggaran', anggaranRouter);
+app.use('/api/v1/approvals', approvalRouter);
+app.use('/api/v1/profile', profileRouter);
+
+// Health Check Route
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date() });
+});
+
+// Root Route
+app.get('/', (req, res) => {
+  res.send('SANTIKA Backend API is running.');
+});
+
+// Error handling middleware
+app.use(errorHandler);
+
+app.listen(env.PORT, () => {
+  console.log(`🚀 Server is listening on port ${env.PORT} in ${env.NODE_ENV} mode.`);
+});
+
+
+
+--- FILE: test-anggaran.js ---
+require('dotenv').config();
+const { prisma } = require('./dist/config/database');
+
+async function runTests() {
+  const BASE_URL = 'http://localhost:4000/api/v1';
+
+  console.log('🚀 Starting Anggaran Module Integration Tests...\n');
+
+  let pastorToken = '';
+  let dewanToken = '';
+  let bendaharaToken = '';
+  let komisiToken = '';
+
+  // --- STEP 1: LOGIN TO RETRIEVE TOKENS ---
+  console.log('--- Step 1: Logging in Users ---');
+  try {
+    // Pastor Login
+    const pastorRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'pastor@santika.org', password: 'password123' }),
+    });
+    const pastorData = await pastorRes.json();
+    pastorToken = pastorData.data.tokens.accessToken;
+
+    // Dewan Keuangan Login
+    const dewanRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'dewan@santika.org', password: 'password123' }),
+    });
+    const dewanData = await dewanRes.json();
+    dewanToken = dewanData.data.tokens.accessToken;
+
+    // Bendahara Login
+    const bendaharaRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'bendahara@santika.org', password: 'password123' }),
+    });
+    const bendaharaData = await bendaharaRes.json();
+    bendaharaToken = bendaharaData.data.tokens.accessToken;
+
+    // Ketua Komisi Login
+    const komisiRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'komisi@santika.org', password: 'password123' }),
+    });
+    const komisiData = await komisiRes.json();
+    komisiToken = komisiData.data.tokens.accessToken;
+
+    console.log('✅ Tokens retrieved successfully');
+  } catch (err) {
+    console.error('❌ Failed to retrieve tokens:', err);
+    await prisma.$disconnect();
+    return;
+  }
+  console.log('\n');
+
+  // --- STEP 2: TEST RBAC PROTECTION ---
+  console.log('--- Step 2: Querying /anggaran with Ketua Komisi token (Should fail with 403) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/anggaran`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${komisiToken}` },
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(res.status === 403 ? '✅ Success: Ketua Komisi access denied correctly' : '❌ Failed: Ketua Komisi should not have access');
+  } catch (err) {
+    console.error('Error in Step 2:', err);
+  }
+  console.log('\n');
+
+  console.log('--- Step 2b: Querying /anggaran with Pastor token (Should succeed) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/anggaran`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${pastorToken}` },
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(res.status === 200 ? '✅ Success: Pastor can view budgets' : '❌ Failed: Pastor access blocked');
+  } catch (err) {
+    console.error('Error in Step 2b:', err);
+  }
+  console.log('\n');
+
+  // Find a Komisi to use for allocation
+  let testKomisi = null;
+  try {
+    testKomisi = await prisma.komisi.findFirst();
+    if (!testKomisi) {
+      console.log('❌ Warning: No Komisi found in database. Seeding check required.');
+    } else {
+      console.log(`Using Komisi: ${testKomisi.nama} (ID: ${testKomisi.id})`);
+    }
+  } catch (err) {
+    console.error('Error querying Komisi:', err);
+  }
+  console.log('\n');
+
+  if (!testKomisi) {
+    await prisma.$disconnect();
+    return;
+  }
+
+  // Ensure clean test setup: delete any preexisting budget for this komisi in 2027
+  try {
+    await prisma.anggaran.deleteMany({
+      where: {
+        komisiId: testKomisi.id,
+        tahun: 2027,
+      },
+    });
+  } catch (err) {
+    console.error('Error cleaning up budget records:', err);
+  }
+
+  // --- STEP 3: CREATING BUDGET ---
+  console.log('--- Step 3: Allocating new budget for 2027 (Bendahara) ---');
+  let budgetId = '';
+  try {
+    const res = await fetch(`${BASE_URL}/anggaran`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${bendaharaToken}`
+      },
+      body: JSON.stringify({
+        tahun: 2027,
+        plafon: 30000000,
+        kategori: 'Liturgi',
+        komisiId: testKomisi.id,
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    if (res.status === 201) {
+      budgetId = data.data.budget.id;
+      console.log('✅ Success: Budget allocated');
+    } else {
+      console.log('❌ Failed to allocate budget');
+    }
+  } catch (err) {
+    console.error('Error in Step 3:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 4: PREVENT DUPLICATES ---
+  console.log('--- Step 4: Allocating duplicate budget for 2027 (Should fail with 400) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/anggaran`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${bendaharaToken}`
+      },
+      body: JSON.stringify({
+        tahun: 2027,
+        plafon: 50000000,
+        kategori: 'Liturgi',
+        komisiId: testKomisi.id,
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    console.log(res.status === 400 ? '✅ Success: Duplicate budget blocked correctly' : '❌ Failed: Allowed duplicate budget');
+  } catch (err) {
+    console.error('Error in Step 4:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 5: QUERY BUDGETS WITH FILTER ---
+  console.log('--- Step 5: Querying budgets filter by tahun=2027 ---');
+  try {
+    const res = await fetch(`${BASE_URL}/anggaran?tahun=2027`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${dewanToken}` },
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response count: ${data.data.budgets.length}`);
+    const found = data.data.budgets.find(b => b.id === budgetId);
+    console.log(found ? '✅ Success: Filters returned the newly created budget' : '❌ Failed: Budget not found in query');
+  } catch (err) {
+    console.error('Error in Step 5:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 6: UPDATE PLAFON ---
+  console.log(`--- Step 6: Updating plafon amount to 45000000 (id: ${budgetId}) ---`);
+  try {
+    const res = await fetch(`${BASE_URL}/anggaran/${budgetId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${bendaharaToken}`
+      },
+      body: JSON.stringify({
+        plafon: 45000000,
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    console.log(res.status === 200 && Number(data.data.budget.plafon) === 45000000 && Number(data.data.budget.sisa) === 45000000 ? '✅ Success: Plafon updated' : '❌ Failed');
+  } catch (err) {
+    console.error('Error in Step 6:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 7: ENFORCE LIMIT LOWER BOUNDS ---
+  console.log('--- Step 7: Testing plafon update bounds (plafon < terpakai) ---');
+  try {
+    // Directly mutate terpakai in DB to simulate spent budget
+    await prisma.anggaran.update({
+      where: { id: budgetId },
+      data: {
+        terpakai: 20000000,
+        sisa: 25000000,
+      },
+    });
+    console.log('Simulatedspent budget: terpakai set to 20,000,000');
+
+    // Attempt to set plafon to 15,000,000
+    const res = await fetch(`${BASE_URL}/anggaran/${budgetId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${bendaharaToken}`
+      },
+      body: JSON.stringify({
+        plafon: 15000000,
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    console.log(res.status === 400 ? '✅ Success: Setting plafon below terpakai blocked correctly' : '❌ Failed: Allowed plafon smaller than spent amount');
+  } catch (err) {
+    console.error('Error in Step 7:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 8: VERIFY AUDIT LOGS IN DATABASE ---
+  console.log('--- Step 8: Verifying generated Audit Logs ---');
+  try {
+    const logs = await prisma.auditLog.findMany({
+      where: {
+        type: 'IN',
+        action: {
+          contains: 'anggaran',
+        },
+      },
+      orderBy: {
+        tanggal: 'desc',
+      },
+      take: 2,
+    });
+
+    console.log('Last 2 Anggaran Audit Logs in DB:');
+    console.log(JSON.stringify(logs, null, 2));
+
+    const createLogged = logs.some(l => l.action.includes('Mengalokasikan anggaran') && Number(l.amount) === 30000000);
+    const updateLogged = logs.some(l => l.action.includes('Memperbarui alokasi anggaran') && Number(l.amount) === 45000000);
+
+    if (createLogged && updateLogged) {
+      console.log('✅ Success: All audit logs (Create, Update) are correctly recorded in the database');
+    } else {
+      console.log('❌ Failed: Missing some audit log entries');
+    }
+  } catch (err) {
+    console.error('Error in Step 8:', err);
+  }
+  console.log('\n');
+
+  // Clean up: delete the test budget record
+  try {
+    await prisma.anggaran.delete({ where: { id: budgetId } });
+    console.log('Test budget deleted.');
+  } catch (err) {
+    console.error('Error deleting test budget:', err);
+  }
+
+  await prisma.$disconnect();
+  console.log('🏁 Anggaran Module Integration Tests Completed.');
+}
+
+runTests();
+
+
+--- FILE: test-approval.js ---
+require('dotenv').config();
+const { prisma } = require('./dist/config/database');
+
+async function runTests() {
+  const BASE_URL = 'http://localhost:4000/api/v1';
+
+  console.log('🚀 Starting Approval Workflow Integration Tests...\n');
+
+  let pastorToken = '';
+  let bendaharaToken = '';
+  let komisiToken = '';
+  let dewanToken = '';
+
+  // --- STEP 1: LOGIN TO RETRIEVE TOKENS ---
+  console.log('--- Step 1: Logging in Users ---');
+  try {
+    // Pastor Login
+    const pastorRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'pastor@santika.org', password: 'password123' }),
+    });
+    const pastorData = await pastorRes.json();
+    pastorToken = pastorData.data.tokens.accessToken;
+
+    // Bendahara Login
+    const bendaharaRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'bendahara@santika.org', password: 'password123' }),
+    });
+    const bendaharaData = await bendaharaRes.json();
+    bendaharaToken = bendaharaData.data.tokens.accessToken;
+
+    // Ketua Komisi Login
+    const komisiRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'komisi@santika.org', password: 'password123' }),
+    });
+    const komisiData = await komisiRes.json();
+    komisiToken = komisiData.data.tokens.accessToken;
+
+    // Dewan Keuangan Login
+    const dewanRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'dewan@santika.org', password: 'password123' }),
+    });
+    const dewanData = await dewanRes.json();
+    dewanToken = dewanData.data.tokens.accessToken;
+
+    console.log('✅ Tokens retrieved successfully');
+  } catch (err) {
+    console.error('❌ Failed to retrieve tokens:', err);
+    await prisma.$disconnect();
+    return;
+  }
+  console.log('\n');
+
+  // Find a test commission and get its parokiId
+  let testKomisi = null;
+  try {
+    testKomisi = await prisma.komisi.findFirst();
+    if (!testKomisi) {
+      console.log('❌ Error: No Komisi found in database. Seed data first.');
+      await prisma.$disconnect();
+      return;
+    }
+    console.log(`Using Komisi: ${testKomisi.nama} (ID: ${testKomisi.id})`);
+  } catch (err) {
+    console.error('Error querying Komisi:', err);
+    await prisma.$disconnect();
+    return;
+  }
+
+  // --- SETUP CLEAN TEST BUDGET ---
+  console.log('--- Step 2: Creating a clean test budget for year 2028 ---');
+  let testBudget = null;
+  try {
+    // Delete any existing budget/proposals for year 2028 to keep test clean
+    const existingBudget = await prisma.anggaran.findFirst({
+      where: {
+        komisiId: testKomisi.id,
+        tahun: 2028,
+      },
+    });
+
+    if (existingBudget) {
+      // Delete child proposals and history first
+      const proposalIds = (await prisma.pengajuan.findMany({
+        where: { anggaranId: existingBudget.id },
+        select: { id: true },
+      })).map(p => p.id);
+
+      await prisma.approvalHistory.deleteMany({
+        where: { pengajuanId: { in: proposalIds } },
+      });
+      await prisma.pengajuan.deleteMany({
+        where: { id: { in: proposalIds } },
+      });
+      await prisma.anggaran.delete({
+        where: { id: existingBudget.id },
+      });
+    }
+
+    testBudget = await prisma.anggaran.create({
+      data: {
+        tahun: 2028,
+        plafon: 5000000, // Rp 5 Million
+        sisa: 5000000,
+        terpakai: 0,
+        kategori: 'Operasional',
+        komisiId: testKomisi.id,
+        parokiId: testKomisi.parokiId,
+      },
+    });
+    console.log(`✅ Test budget created with ID: ${testBudget.id}, plafon: Rp ${testBudget.plafon}`);
+  } catch (err) {
+    console.error('❌ Failed setting up test budget:', err);
+    await prisma.$disconnect();
+    return;
+  }
+  console.log('\n');
+
+  // --- TEST 1: SUBMIT PROPOSAL EXCEEDING BUDGET ---
+  console.log('--- Test 1: Submit proposal exceeding sisa budget (Should fail with 400) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/approvals`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${komisiToken}`,
+      },
+      body: JSON.stringify({
+        judul: 'Pengadaan Meja Rapat Komisi',
+        nominal: 6000000, // Budget is only 5,000,000
+        tujuan: 'Membeli meja rapat baru untuk ruangan sekretariat',
+        anggaranId: testBudget.id,
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    if (res.status === 400) {
+      console.log('✅ Success: Properly blocked proposal exceeding remaining budget');
+    } else {
+      console.log('❌ Failed: Allowed proposal exceeding sisa budget');
+    }
+  } catch (err) {
+    console.error('Error in Test 1:', err);
+  }
+  console.log('\n');
+
+  // --- TEST 2: SUBMIT VALID SMALL PROPOSAL ---
+  console.log('--- Test 2: Submit a valid small proposal (<= 500k) ---');
+  let proposalSmallId = '';
+  try {
+    const res = await fetch(`${BASE_URL}/approvals`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${komisiToken}`,
+      },
+      body: JSON.stringify({
+        judul: 'Buku Liturgi Misa',
+        nominal: 300000, // Rp 300,000 <= 500k
+        tujuan: 'Pembelian buku panduan lagu liturgi baru',
+        anggaranId: testBudget.id,
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    if (res.status === 201 && data.data.approval.status === 'MENUNGGU_VERIFIKASI') {
+      proposalSmallId = data.data.approval.id;
+      console.log('✅ Success: Small proposal submitted');
+    } else {
+      console.log('❌ Failed to submit small proposal');
+    }
+  } catch (err) {
+    console.error('Error in Test 2:', err);
+  }
+  console.log('\n');
+
+  // --- TEST 3: BENDAHARA AUTO-APPROVES SMALL PROPOSAL ---
+  console.log('--- Test 3: Bendahara auto-approves small proposal directly to DISETUJUI ---');
+  try {
+    const res = await fetch(`${BASE_URL}/approvals/${proposalSmallId}/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${bendaharaToken}`,
+      },
+      body: JSON.stringify({
+        action: 'APPROVE',
+        catatan: 'Dokumen lengkap dan sesuai anggaran',
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response status: ${data.data.approval.status}`);
+    if (res.status === 200 && data.data.approval.status === 'DISETUJUI') {
+      console.log('✅ Success: Auto-approved proposal directly to DISETUJUI');
+    } else {
+      console.log('❌ Failed: Proposal status not DISETUJUI');
+    }
+  } catch (err) {
+    console.error('Error in Test 3:', err);
+  }
+  console.log('\n');
+
+  // --- TEST 4: SUBMIT VALID LARGE PROPOSAL ---
+  console.log('--- Test 4: Submit a valid large proposal (> 500k) ---');
+  let proposalLargeId = '';
+  try {
+    const res = await fetch(`${BASE_URL}/approvals`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${komisiToken}`,
+      },
+      body: JSON.stringify({
+        judul: 'Sound System Seminar',
+        nominal: 1500000, // Rp 1,500,000 > 500k
+        tujuan: 'Sewa sound system untuk seminar komisi remaja',
+        anggaranId: testBudget.id,
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    if (res.status === 201) {
+      proposalLargeId = data.data.approval.id;
+      console.log('✅ Success: Large proposal submitted');
+    } else {
+      console.log('❌ Failed to submit large proposal');
+    }
+  } catch (err) {
+    console.error('Error in Test 4:', err);
+  }
+  console.log('\n');
+
+  // --- TEST 5: BENDAHARA ESCALATES LARGE PROPOSAL ---
+  console.log('--- Test 5: Bendahara approves large proposal (Should escalate to MENUNGGU_PERSETUJUAN) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/approvals/${proposalLargeId}/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${bendaharaToken}`,
+      },
+      body: JSON.stringify({
+        action: 'APPROVE',
+        catatan: 'Diajukan ke Pastor karena nominal > 500.000',
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response status: ${data.data.approval.status}`);
+    if (res.status === 200 && data.data.approval.status === 'MENUNGGU_PERSETUJUAN') {
+      console.log('✅ Success: Large proposal escalated to Pastor');
+    } else {
+      console.log('❌ Failed: Proposal should have been escalated');
+    }
+  } catch (err) {
+    console.error('Error in Test 5:', err);
+  }
+  console.log('\n');
+
+  // --- TEST 6: PASTOR APPROVES ESCALATED PROPOSAL ---
+  console.log('--- Test 6: Pastor approves escalated proposal to DISETUJUI ---');
+  try {
+    const res = await fetch(`${BASE_URL}/approvals/${proposalLargeId}/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${pastorToken}`,
+      },
+      body: JSON.stringify({
+        action: 'APPROVE',
+        catatan: 'Disetujui untuk meningkatkan kualitas kegiatan remaja',
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response status: ${data.data.approval.status}`);
+    if (res.status === 200 && data.data.approval.status === 'DISETUJUI') {
+      console.log('✅ Success: Pastor approved proposal to DISETUJUI');
+    } else {
+      console.log('❌ Failed: Pastor approval failed');
+    }
+  } catch (err) {
+    console.error('Error in Test 6:', err);
+  }
+  console.log('\n');
+
+  // --- TEST 7: REVISION AND RESUBMIT FLOW ---
+  console.log('--- Test 7: Revision and Resubmit workflow ---');
+  let proposalRevId = '';
+  try {
+    // 1. Submit third proposal
+    const submitRes = await fetch(`${BASE_URL}/approvals`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${komisiToken}`,
+      },
+      body: JSON.stringify({
+        judul: 'Konsumsi Rapat Komisi',
+        nominal: 800000,
+        tujuan: 'Konsumsi untuk rapat komisi liturgi bulanan',
+        anggaranId: testBudget.id,
+      }),
+    });
+    const submitData = await submitRes.json();
+    proposalRevId = submitData.data.approval.id;
+    console.log(`Proposal submitted with ID: ${proposalRevId}`);
+
+    // 2. Bendahara requests revision
+    const reviseRes = await fetch(`${BASE_URL}/approvals/${proposalRevId}/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${bendaharaToken}`,
+      },
+      body: JSON.stringify({
+        action: 'REVISE',
+        catatan: 'Detail konsumsi kurang rinci, mohon direvisi',
+      }),
+    });
+    const reviseData = await reviseRes.json();
+    console.log(`Bendahara REVISE status: ${reviseData.data.approval.status}`);
+
+    if (reviseRes.status === 200 && reviseData.data.approval.status === 'REVISI') {
+      console.log('✅ Success: Proposal state set to REVISI');
+    } else {
+      console.log('❌ Failed: Proposal status not set to REVISI');
+    }
+
+    // 3. Ketua Komisi resubmits
+    const resubmitRes = await fetch(`${BASE_URL}/approvals/${proposalRevId}/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${komisiToken}`,
+      },
+      body: JSON.stringify({
+        action: 'SUBMIT',
+        catatan: 'Sudah ditambahkan rincian konsumsi per porsi',
+      }),
+    });
+    const resubmitData = await resubmitRes.json();
+    console.log(`Resubmit status: ${resubmitData.data.approval.status}`);
+
+    if (resubmitRes.status === 200 && resubmitData.data.approval.status === 'MENUNGGU_VERIFIKASI') {
+      console.log('✅ Success: Proposal resubmitted back to MENUNGGU_VERIFIKASI');
+    } else {
+      console.log('❌ Failed: Resubmission did not reset status correctly');
+    }
+  } catch (err) {
+    console.error('Error in Test 7:', err);
+  }
+  console.log('\n');
+
+  // --- TEST 8: FORBIDDEN ROLE GUARANTEE ---
+  console.log('--- Test 8: Dewan Keuangan attempts to update proposal status (Should fail with 403) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/approvals/${proposalRevId}/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${dewanToken}`,
+      },
+      body: JSON.stringify({
+        action: 'APPROVE',
+        catatan: 'Mencoba menyetujui tanpa hak akses',
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(res.status === 403 ? '✅ Success: Correctly blocked unauthorized role access' : '❌ Failed: Allowed unauthorized user to modify status');
+  } catch (err) {
+    console.error('Error in Test 8:', err);
+  }
+  console.log('\n');
+
+  // --- TEST 9: VERIFY GET APPROVALS LIST ---
+  console.log('--- Test 9: Get approvals list filtering and RBAC scoping ---');
+  try {
+    // 1. KETUA_KOMISI sees only their own
+    const komisiListRes = await fetch(`${BASE_URL}/approvals`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${komisiToken}` },
+    });
+    const komisiListData = await komisiListRes.json();
+    console.log(`Ketua Komisi listing count: ${komisiListData.data.approvals.length}`);
+
+    // Verify all returned records have pemohonId = Ketua Komisi
+    const hasUnowned = komisiListData.data.approvals.some(a => a.pemohon.id !== komisiListData.data.approvals[0]?.pemohon?.id);
+    if (!hasUnowned) {
+      console.log('✅ Success: Ketua Komisi listing is strictly scoped to owned proposals');
+    } else {
+      console.log('❌ Failed: Ketua Komisi listing leaked other users proposals');
+    }
+
+    // 2. BENDAHARA sees all in the paroki
+    const bendaharaListRes = await fetch(`${BASE_URL}/approvals`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${bendaharaToken}` },
+    });
+    const bendaharaListData = await bendaharaListRes.json();
+    console.log(`Bendahara listing count: ${bendaharaListData.data.approvals.length}`);
+
+    // 3. Filter by status DISETUJUI
+    const filterRes = await fetch(`${BASE_URL}/approvals?status=DISETUJUI`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${bendaharaToken}` },
+    });
+    const filterData = await filterRes.json();
+    const allApproved = filterData.data.approvals.every(a => a.status === 'DISETUJUI');
+    console.log(`Status filter count: ${filterData.data.approvals.length}`);
+    if (allApproved) {
+      console.log('✅ Success: Query status filter applied correctly');
+    } else {
+      console.log('❌ Failed: Query status filter returned non-approved items');
+    }
+  } catch (err) {
+    console.error('Error in Test 9:', err);
+  }
+  console.log('\n');
+
+  // --- TEST 10: VERIFY DB AUDIT TRAILS AND HISTORIES ---
+  console.log('--- Test 10: Verify DB Audit Logs and histories are correctly stored ---');
+  try {
+    // Check history logs for proposalLargeId
+    const history = await prisma.approvalHistory.findMany({
+      where: { pengajuanId: proposalLargeId },
+      orderBy: { tanggal: 'asc' },
+    });
+    console.log(`History steps for Large Proposal (escalated and approved):`);
+    console.log(JSON.stringify(history, null, 2));
+
+    const stepActions = history.map(h => `${h.step} (${h.action})`);
+    console.log('History trail:', stepActions.join(' -> '));
+
+    const correctHistory =
+      history.length >= 3 &&
+      history[0].action === 'SUBMIT' &&
+      history[1].action === 'APPROVE' &&
+      history[1].step === 'Verifikasi Bendahara' &&
+      history[2].action === 'APPROVE' &&
+      history[2].step === 'Persetujuan Pastor';
+
+    if (correctHistory) {
+      console.log('✅ Success: History workflow steps logged chronologically');
+    } else {
+      console.log('❌ Failed: Missing or incorrect history logs');
+    }
+
+    // Check AuditLog in DB
+    const auditLogs = await prisma.auditLog.findMany({
+      where: {
+        actorId: (await prisma.user.findFirst({ where: { role: 'KETUA_KOMISI' } })).id,
+      },
+      orderBy: { tanggal: 'desc' },
+      take: 3,
+    });
+    console.log('Audit logs recorded for Ketua Komisi actions:');
+    console.log(JSON.stringify(auditLogs, null, 2));
+
+    const hasCreates = auditLogs.some(log => log.action.includes('membuat pengajuan'));
+    if (hasCreates) {
+      console.log('✅ Success: Audit Logs successfully generated for the operations');
+    } else {
+      console.log('❌ Failed: Could not locate expected Audit Log entries');
+    }
+  } catch (err) {
+    console.error('Error in Test 10:', err);
+  }
+  console.log('\n');
+
+  // --- CLEANUP TEST DATABASE RECORDS ---
+  console.log('--- Step 11: Cleaning up test data ---');
+  try {
+    const allCreatedProposals = [proposalSmallId, proposalLargeId, proposalRevId].filter(id => !!id);
+    await prisma.approvalHistory.deleteMany({
+      where: { pengajuanId: { in: allCreatedProposals } },
+    });
+    await prisma.pengajuan.deleteMany({
+      where: { id: { in: allCreatedProposals } },
+    });
+    await prisma.anggaran.delete({
+      where: { id: testBudget.id },
+    });
+    console.log('✅ Cleanup completed.');
+  } catch (err) {
+    console.error('Error during cleanup:', err);
+  }
+
+  await prisma.$disconnect();
+  console.log('\n🏁 Approval Module Integration Tests Completed.');
+}
+
+runTests();
+
+
+--- FILE: test-kas-keluar.js ---
+require('dotenv').config();
+const { prisma } = require('./dist/config/database');
+const fs = require('fs');
+const path = require('path');
+
+async function runTests() {
+  const BASE_URL = 'http://localhost:4000/api/v1';
+
+  console.log('🚀 Starting Kas Keluar Module Integration Tests...\n');
+
+  let pastorToken = '';
+  let bendaharaToken = '';
+  let sekretariatToken = '';
+  let komisiToken = '';
+
+  // --- STEP 1: LOGIN TO RETRIEVE TOKENS ---
+  console.log('--- Step 1: Logging in Users ---');
+  try {
+    // Pastor Login
+    const pastorRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'pastor@santika.org', password: 'password123' }),
+    });
+    const pastorData = await pastorRes.json();
+    pastorToken = pastorData.data.tokens.accessToken;
+
+    // Bendahara Login
+    const bendaharaRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'bendahara@santika.org', password: 'password123' }),
+    });
+    const bendaharaData = await bendaharaRes.json();
+    bendaharaToken = bendaharaData.data.tokens.accessToken;
+
+    // Sekretariat Login
+    const sekretariatRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'sekretariat@santika.org', password: 'password123' }),
+    });
+    const sekretariatData = await sekretariatRes.json();
+    sekretariatToken = sekretariatData.data.tokens.accessToken;
+
+    // Ketua Komisi Login
+    const komisiRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'komisi@santika.org', password: 'password123' }),
+    });
+    const komisiData = await komisiRes.json();
+    komisiToken = komisiData.data.tokens.accessToken;
+
+    console.log('✅ Tokens retrieved successfully');
+  } catch (err) {
+    console.error('❌ Failed to retrieve tokens:', err);
+    await prisma.$disconnect();
+    return;
+  }
+  console.log('\n');
+
+  // --- STEP 2: TEST RBAC PROTECTION ---
+  console.log('--- Step 2: Querying /kas/keluar with Sekretariat token (Should fail with 403) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/kas/keluar`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${sekretariatToken}` },
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(res.status === 403 ? '✅ Success: Sekretariat access denied correctly' : '❌ Failed: Sekretariat should not have access');
+  } catch (err) {
+    console.error('Error in Step 2:', err);
+  }
+  console.log('\n');
+
+  // Find an existing budget (Anggaran) in the database for testing
+  let testBudget = null;
+  try {
+    testBudget = await prisma.anggaran.findFirst();
+    if (!testBudget) {
+      console.log('❌ Warning: No Anggaran found in the database. Ensure seeding was run.');
+    } else {
+      console.log(`Using Anggaran ID: ${testBudget.id} (Plafon: ${testBudget.plafon}, Terpakai: ${testBudget.terpakai}, Sisa: ${testBudget.sisa})`);
+    }
+  } catch (err) {
+    console.error('Error querying budget:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 3: CREATING TRANSACTION EXCEEDING BUDGET ---
+  if (testBudget) {
+    console.log('--- Step 3: Recording Kas Keluar exceeding budget (Should fail with 400) ---');
+    try {
+      const form = new FormData();
+      form.append('tanggal', new Date().toISOString());
+      form.append('kategori', 'Liturgi');
+      form.append('penerima', 'Toko Buku Cahaya');
+      const exceedAmount = Number(testBudget.sisa) + 100000;
+      form.append('jumlah', exceedAmount.toString());
+      form.append('anggaranId', testBudget.id);
+
+      const res = await fetch(`${BASE_URL}/kas/keluar`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${komisiToken}`
+        },
+        body: form,
+      });
+      const data = await res.json();
+      console.log(`Status: ${res.status}`);
+      console.log(`Response:`, JSON.stringify(data, null, 2));
+      console.log(res.status === 400 ? '✅ Success: Budget exceeding transaction blocked correctly' : '❌ Failed: Allowed budget exceed');
+    } catch (err) {
+      console.error('Error in Step 3:', err);
+    }
+    console.log('\n');
+  }
+
+  // --- STEP 4: RECORD VALID TRANSACTION WITH ATTACHMENT ---
+  console.log('--- Step 4: Recording valid Kas Keluar with Attachment (Ketua Komisi) ---');
+  let transactionId = '';
+  let attachmentUrl = '';
+  try {
+    const form = new FormData();
+    form.append('tanggal', new Date().toISOString());
+    form.append('kategori', 'PSE');
+    form.append('penerima', 'Apotek Kasih Ibu');
+    form.append('jumlah', '150000');
+    if (testBudget) {
+      form.append('anggaranId', testBudget.id);
+    }
+    // Create PDF Blob to simulate file
+    const fileBlob = new Blob(['%PDF-1.4 receipt invoice body content'], { type: 'application/pdf' });
+    form.append('file', fileBlob, 'nota_obat.pdf');
+
+    const res = await fetch(`${BASE_URL}/kas/keluar`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${komisiToken}`
+      },
+      body: form,
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+
+    if (res.status === 201) {
+      transactionId = data.data.transaction.id;
+      attachmentUrl = data.data.transaction.attachment.fileUrl;
+      console.log('✅ Success: Kas Keluar created');
+
+      // Verify budget updated in DB
+      if (testBudget) {
+        const updatedAnggaran = await prisma.anggaran.findUnique({ where: { id: testBudget.id } });
+        const terpakaiDiff = Number(updatedAnggaran.terpakai) - Number(testBudget.terpakai);
+        console.log(`Budget Verification: terpakai increased by ${terpakaiDiff} (Expected: 150000)`);
+        console.log(terpakaiDiff === 150000 ? '✅ Success: Budget deducted correctly' : '❌ Failed: Incorrect budget deduction');
+      }
+    } else {
+      console.log('❌ Failed: Could not record Kas Keluar');
+    }
+  } catch (err) {
+    console.error('Error in Step 4:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 5: VERIFY FILE IS SERVED STATICALLY ---
+  console.log('--- Step 5: Verifying file upload static serve ---');
+  try {
+    const res = await fetch(`http://localhost:4000${attachmentUrl}`);
+    console.log(`Statically served status: ${res.status}`);
+    const text = await res.text();
+    console.log(`Served file content: "${text}"`);
+    console.log(res.status === 200 && text === '%PDF-1.4 receipt invoice body content' ? '✅ Success: File served correctly' : '❌ Failed: File serve failed');
+  } catch (err) {
+    console.error('Error in Step 5:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 6: UPDATE TRANSACTION BY BENDAHARA ---
+  console.log(`--- Step 6: Updating transaction amount to 250000 (Bendahara) ---`);
+  try {
+    const form = new FormData();
+    form.append('jumlah', '250000');
+    form.append('penerima', 'Apotek Kasih Ibu (Diperbarui)');
+
+    const res = await fetch(`${BASE_URL}/kas/keluar/${transactionId}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${bendaharaToken}`
+      },
+      body: form,
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+
+    if (res.status === 200 && Number(data.data.transaction.jumlah) === 250000) {
+      console.log('✅ Success: Transaction updated');
+
+      // Verify budget updated in DB
+      if (testBudget) {
+        const updatedAnggaran = await prisma.anggaran.findUnique({ where: { id: testBudget.id } });
+        const terpakaiDiff = Number(updatedAnggaran.terpakai) - Number(testBudget.terpakai);
+        console.log(`Budget Verification: terpakai total diff from original is now ${terpakaiDiff} (Expected: 250000)`);
+        console.log(terpakaiDiff === 250000 ? '✅ Success: Budget updated correctly' : '❌ Failed: Incorrect budget update');
+      }
+    } else {
+      console.log('❌ Failed: Could not update transaction');
+    }
+  } catch (err) {
+    console.error('Error in Step 6:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 7: PREVENT DELETION FOR KETUA KOMISI ---
+  console.log('--- Step 7: Attempting deletion by Ketua Komisi (Should fail with 403) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/kas/keluar/${transactionId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${komisiToken}` },
+    });
+    console.log(`Status: ${res.status}`);
+    console.log(res.status === 403 ? '✅ Success: Deletion by Ketua Komisi blocked correctly' : '❌ Failed: Ketua Komisi shouldn\'t have delete permission');
+  } catch (err) {
+    console.error('Error in Step 7:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 8: DELETE TRANSACTION BY BENDAHARA ---
+  console.log('--- Step 8: Deleting transaction by Bendahara (Should succeed) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/kas/keluar/${transactionId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${bendaharaToken}` },
+    });
+    console.log(`Status: ${res.status}`);
+    console.log(res.status === 200 ? '✅ Success: Transaction deleted' : '❌ Failed to delete');
+
+    // Verify budget restored in DB
+    if (testBudget) {
+      const restoredAnggaran = await prisma.anggaran.findUnique({ where: { id: testBudget.id } });
+      const terpakaiDiff = Number(restoredAnggaran.terpakai) - Number(testBudget.terpakai);
+      console.log(`Budget Verification: terpakai diff from original after delete is ${terpakaiDiff} (Expected: 0)`);
+      console.log(terpakaiDiff === 0 ? '✅ Success: Budget fully restored' : '❌ Failed: Budget not restored');
+    }
+
+    // Verify physical file deletion
+    const relativePath = attachmentUrl.startsWith('/') ? attachmentUrl.substring(1) : attachmentUrl;
+    const fullPath = path.join(process.cwd(), relativePath);
+    const fileExists = fs.existsSync(fullPath);
+    console.log(`File exists on disk: ${fileExists}`);
+    console.log(!fileExists ? '✅ Success: Physical file deleted from uploads folder' : '❌ Failed: Physical file still exists on disk');
+  } catch (err) {
+    console.error('Error in Step 8:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 9: VERIFY AUDIT LOGS IN DATABASE ---
+  console.log('--- Step 9: Verifying generated Audit Logs ---');
+  try {
+    const logs = await prisma.auditLog.findMany({
+      where: {
+        type: 'OUT',
+      },
+      orderBy: {
+        tanggal: 'desc',
+      },
+      take: 3,
+    });
+
+    console.log('Last 3 Audit Logs in DB:');
+    console.log(JSON.stringify(logs, null, 2));
+
+    const createLogged = logs.some(l => l.action.includes('Mencatat Kas Keluar') && Number(l.amount) === 150000);
+    const updateLogged = logs.some(l => l.action.includes('Memperbarui transaksi Kas Keluar') && Number(l.amount) === 250000);
+    const deleteLogged = logs.some(l => l.action.includes('Menghapus transaksi Kas Keluar') && Number(l.amount) === 250000);
+
+    if (createLogged && updateLogged && deleteLogged) {
+      console.log('✅ Success: All audit logs (Create, Update, Delete) are correctly recorded in the database');
+    } else {
+      console.log('❌ Failed: Missing some audit log entries');
+    }
+  } catch (err) {
+    console.error('Error in Step 9:', err);
+  }
+  console.log('\n');
+
+  await prisma.$disconnect();
+  console.log('🏁 Kas Keluar Module Integration Tests Completed.');
+}
+
+runTests();
+
+
+--- FILE: test-kas-masuk.js ---
+require('dotenv').config();
+const { prisma } = require('./dist/config/database');
+
+async function runTests() {
+  const BASE_URL = 'http://localhost:4000/api/v1';
+
+  console.log('🚀 Starting Kas Masuk Module Integration Tests...\n');
+
+  let pastorToken = '';
+  let bendaharaToken = '';
+  let sekretariatToken = '';
+
+  // --- STEP 1: LOGIN TO RETRIEVE TOKENS ---
+  console.log('--- Step 1: Logging in Users ---');
+  try {
+    // Pastor Login
+    const pastorRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'pastor@santika.org', password: 'password123' }),
+    });
+    const pastorData = await pastorRes.json();
+    pastorToken = pastorData.data.tokens.accessToken;
+
+    // Bendahara Login
+    const bendaharaRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'bendahara@santika.org', password: 'password123' }),
+    });
+    const bendaharaData = await bendaharaRes.json();
+    bendaharaToken = bendaharaData.data.tokens.accessToken;
+
+    // Sekretariat Login
+    const sekretariatRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'sekretariat@santika.org', password: 'password123' }),
+    });
+    const sekretariatData = await sekretariatRes.json();
+    sekretariatToken = sekretariatData.data.tokens.accessToken;
+
+    console.log('✅ Tokens retrieved successfully');
+  } catch (err) {
+    console.error('❌ Failed to retrieve tokens:', err);
+    await prisma.$disconnect();
+    return;
+  }
+  console.log('\n');
+
+  // --- STEP 2: TEST RBAC PROTECTION ---
+  console.log('--- Step 2: Querying /kas/masuk with Pastor token (Should fail with 403) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/kas/masuk`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${pastorToken}` },
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(res.status === 403 ? '✅ Success: Pastor access denied correctly' : '❌ Failed: Pastor should not have access');
+  } catch (err) {
+    console.error('Error in Step 2:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 3: CREATING TRANSACTION (SEKRETARIAT) ---
+  console.log('--- Step 3: Recording valid Kas Masuk (Sekretariat) ---');
+  let transactionId = '';
+  const timestamp = new Date().toISOString();
+  try {
+    const res = await fetch(`${BASE_URL}/kas/masuk`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${sekretariatToken}`
+      },
+      body: JSON.stringify({
+        tanggal: timestamp,
+        kategori: 'Kolekte',
+        sumber: 'Misa Hari Minggu Pagi',
+        jumlah: 2500000,
+        keterangan: 'Kolekte Pertama Misa I',
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    if (res.status === 201) {
+      transactionId = data.data.transaction.id;
+      console.log('✅ Success: Kas Masuk recorded');
+    } else {
+      console.log('❌ Failed to record Kas Masuk');
+    }
+  } catch (err) {
+    console.error('Error in Step 3:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 4: VALIDATION CHECKS (SEKRETARIAT) ---
+  console.log('--- Step 4: Recording invalid Kas Masuk (Should fail validation) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/kas/masuk`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${sekretariatToken}`
+      },
+      body: JSON.stringify({
+        tanggal: 'not-a-date',
+        kategori: 'InvalidKategori',
+        sumber: '',
+        jumlah: -1000,
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    console.log(res.status === 400 ? '✅ Success: Invalid values blocked' : '❌ Failed: Allowed invalid values');
+  } catch (err) {
+    console.error('Error in Step 4:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 5: QUERY WITH FILTER & SEARCH ---
+  console.log('--- Step 5: Querying Kas Masuk with filters ---');
+  try {
+    const res = await fetch(`${BASE_URL}/kas/masuk?kategori=Kolekte&search=Hari Minggu`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${sekretariatToken}` },
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response count: ${data.data.transactions.length}`);
+    const found = data.data.transactions.find(t => t.id === transactionId);
+    console.log(found ? '✅ Success: Filter matches and returns the transaction' : '❌ Failed: Transaction not found');
+  } catch (err) {
+    console.error('Error in Step 5:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 6: UPDATE TRANSACTION (SEKRETARIAT) ---
+  console.log(`--- Step 6: Updating Kas Masuk amount (id: ${transactionId}) ---`);
+  try {
+    const res = await fetch(`${BASE_URL}/kas/masuk/${transactionId}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${sekretariatToken}`
+      },
+      body: JSON.stringify({
+        jumlah: 3000000,
+        keterangan: 'Kolekte Pertama Misa I (Diperbarui)',
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    console.log(res.status === 200 && Number(data.data.transaction.jumlah) === 3000000 ? '✅ Success: Transaction updated' : '❌ Failed');
+  } catch (err) {
+    console.error('Error in Step 6:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 7: PREVENT DELETION FOR SEKRETARIAT ---
+  console.log(`--- Step 7: Attempting deletion by Sekretariat (Should fail with 403) ---`);
+  try {
+    const res = await fetch(`${BASE_URL}/kas/masuk/${transactionId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${sekretariatToken}` },
+    });
+    console.log(`Status: ${res.status}`);
+    console.log(res.status === 403 ? '✅ Success: Deletion by Sekretariat denied correctly' : '❌ Failed: Sekretariat should not have deletion access');
+  } catch (err) {
+    console.error('Error in Step 7:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 8: DELETE TRANSACTION FOR BENDAHARA ---
+  console.log(`--- Step 8: Deleting transaction by Bendahara (Should succeed) ---`);
+  try {
+    const res = await fetch(`${BASE_URL}/kas/masuk/${transactionId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${bendaharaToken}` },
+    });
+    console.log(`Status: ${res.status}`);
+    console.log(res.status === 200 ? '✅ Success: Transaction deleted' : '❌ Failed to delete');
+  } catch (err) {
+    console.error('Error in Step 8:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 9: VERIFY AUDIT LOGS IN DATABASE ---
+  console.log('--- Step 9: Verifying generated Audit Logs ---');
+  try {
+    const logs = await prisma.auditLog.findMany({
+      where: {
+        type: 'IN',
+      },
+      orderBy: {
+        tanggal: 'desc',
+      },
+      take: 3,
+    });
+
+    console.log('Last 3 Audit Logs in DB:');
+    console.log(JSON.stringify(logs, null, 2));
+
+    const createLogged = logs.some(l => l.action.includes('Mencatat Kas Masuk') && Number(l.amount) === 2500000);
+    const updateLogged = logs.some(l => l.action.includes('Memperbarui transaksi Kas Masuk') && Number(l.amount) === 3000000);
+    const deleteLogged = logs.some(l => l.action.includes('Menghapus transaksi Kas Masuk') && Number(l.amount) === 3000000);
+
+    if (createLogged && updateLogged && deleteLogged) {
+      console.log('✅ Success: All audit logs (Create, Update, Delete) are correctly recorded in the database');
+    } else {
+      console.log('❌ Failed: Missing some audit log entries');
+    }
+  } catch (err) {
+    console.error('Error in Step 9:', err);
+  }
+  console.log('\n');
+
+  await prisma.$disconnect();
+  console.log('🏁 Kas Masuk Module Integration Tests Completed.');
+}
+
+runTests();
+
+
+--- FILE: test-users.js ---
+async function runTests() {
+  const BASE_URL = 'http://localhost:4000/api/v1';
+
+  console.log('🚀 Starting Users Module Integration Tests...\n');
+
+  // --- STEP 1: LOGIN TO RETRIEVE TOKENS ---
+  console.log('--- Step 1: Logging in Pastor and Super Admin ---');
+  let pastorToken = '';
+  let adminToken = '';
+  let adminUserId = '';
+
+  try {
+    // Pastor Login
+    const pastorRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'pastor@santika.org', password: 'password123' }),
+    });
+    const pastorData = await pastorRes.json();
+    pastorToken = pastorData.data.tokens.accessToken;
+
+    // Admin Login
+    const adminRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'admin@santika.org', password: 'password123' }),
+    });
+    const adminData = await adminRes.json();
+    adminToken = adminData.data.tokens.accessToken;
+    adminUserId = adminData.data.user.id;
+
+    console.log('✅ Tokens retrieved successfully');
+  } catch (err) {
+    console.error('❌ Failed to retrieve tokens:', err);
+    return;
+  }
+  console.log('\n');
+
+  // --- STEP 2: TEST RBAC PROTECTION ---
+  console.log('--- Step 2: Querying /users with PASTOR token (Should fail with 403) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/users`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${pastorToken}` },
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    console.log(res.status === 403 ? '✅ Success: Access denied correctly' : '❌ Failed: Pastor should not have access');
+  } catch (err) {
+    console.error('Error in Step 2:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 3: QUERY WITH SUPER ADMIN ---
+  console.log('--- Step 3: Querying /users with SUPER_ADMIN token (Should succeed) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/users`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Users returned: ${data.data.users.length}`);
+    console.log(res.status === 200 ? '✅ Success: Users queried successfully' : '❌ Failed');
+  } catch (err) {
+    console.error('Error in Step 3:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 4: CREATE A NEW USER ---
+  console.log('--- Step 4: Registering a new Ketua Komisi user ---');
+  let newUserId = '';
+  const timestamp = Date.now();
+  const newEmail = `test_komisi_${timestamp}@santika.org`;
+  try {
+    const res = await fetch(`${BASE_URL}/users`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({
+        email: newEmail,
+        name: 'Test Ketua Komisi',
+        role: 'KETUA_KOMISI',
+        password: 'password123'
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    if (res.status === 201) {
+      newUserId = data.data.user.id;
+      console.log('✅ Success: New user registered');
+    } else {
+      console.log('❌ Failed to register new user');
+    }
+  } catch (err) {
+    console.error('Error in Step 4:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 5: ATTEMPT TO DUPLICATE EMAIL REGISTRATION ---
+  console.log('--- Step 5: Registering duplicate email (Should fail with 400) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/users`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({
+        email: newEmail,
+        name: 'Duplicate User',
+        role: 'SEKRETARIAT',
+        password: 'password123'
+      }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    console.log(res.status === 400 ? '✅ Success: Duplicated email blocked' : '❌ Failed: Allowed duplicate email');
+  } catch (err) {
+    console.error('Error in Step 5:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 6: QUERY WITH FILTERS ---
+  console.log(`--- Step 6: Querying users with filter parameters (search="test_komisi_${timestamp}" & role="KETUA_KOMISI") ---`);
+  try {
+    const res = await fetch(`${BASE_URL}/users?search=test_komisi_${timestamp}&role=KETUA_KOMISI`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    const found = data.data.users.find(u => u.id === newUserId);
+    console.log(found ? '✅ Success: Filter matches and returns the new user' : '❌ Failed: New user not found under filters');
+  } catch (err) {
+    console.error('Error in Step 6:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 7: TOGGLE ACCOUNT STATUS (DEACTIVATE) ---
+  console.log(`--- Step 7: Deactivating the new user (id: ${newUserId}) ---`);
+  try {
+    const res = await fetch(`${BASE_URL}/users/${newUserId}/status`, {
+      method: 'PATCH',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ isActive: false }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    console.log(res.status === 200 && data.data.user.isActive === false ? '✅ Success: User account deactivated' : '❌ Failed');
+  } catch (err) {
+    console.error('Error in Step 7:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 8: PREVENT SELF-DEACTIVATION ---
+  console.log(`--- Step 8: Attempting self-deactivation of logged-in Super Admin (id: ${adminUserId}) (Should fail) ---`);
+  try {
+    const res = await fetch(`${BASE_URL}/users/${adminUserId}/status`, {
+      method: 'PATCH',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      },
+      body: JSON.stringify({ isActive: false }),
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Response:`, JSON.stringify(data, null, 2));
+    console.log(res.status === 400 ? '✅ Success: Self-deactivation blocked' : '❌ Failed: Super Admin deactivated themselves');
+  } catch (err) {
+    console.error('Error in Step 8:', err);
+  }
+  console.log('\n');
+
+  // --- STEP 9: QUERY DEACTIVATED USERS ---
+  console.log('--- Step 9: Querying for inactive users only (isActive=false) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/users?isActive=false`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${adminToken}` },
+    });
+    const data = await res.json();
+    console.log(`Status: ${res.status}`);
+    console.log(`Inactive users count: ${data.data.users.length}`);
+    const found = data.data.users.find(u => u.id === newUserId);
+    console.log(found ? '✅ Success: Retrieved inactive user list correctly' : '❌ Failed');
+  } catch (err) {
+    console.error('Error in Step 9:', err);
+  }
+  console.log('\n');
+
+  console.log('🏁 Users Module Integration Tests Completed.');
+}
+
+runTests();
+
+
+--- FILE: tsconfig.json ---
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["es2022"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "resolveJsonModule": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*"]
+}
+

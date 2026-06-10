@@ -3,6 +3,18 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
+// Prisma v7: URL koneksi database WAJIB di sini, tidak boleh di schema.prisma.
+// dotenv/config di atas memastikan .env terbaca sebelum baris ini dieksekusi.
+const databaseUrl = process.env["DATABASE_URL"];
+
+if (!databaseUrl) {
+  throw new Error(
+    '[SANTIKA] DATABASE_URL tidak ditemukan di environment variables.\n' +
+    'Pastikan file .env sudah ada di root project santika-be dengan format:\n' +
+    'DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/santika_db?schema=public"'
+  );
+}
+
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
@@ -10,6 +22,6 @@ export default defineConfig({
     seed: "ts-node prisma/seed.ts",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    url: databaseUrl,
   },
 });
