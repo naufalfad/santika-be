@@ -20,6 +20,10 @@ async function main() {
   await prisma.pengajuan.deleteMany({});
   await prisma.kasKeluar.deleteMany({});
   await prisma.kasMasuk.deleteMany({});
+  await prisma.cashTransaction.deleteMany({});
+  await prisma.fundCategory.deleteMany({});
+  await prisma.incomeType.deleteMany({});
+  await prisma.expenseType.deleteMany({});
   await prisma.mutasiDanaKhusus.deleteMany({});
   await prisma.danaKhusus.deleteMany({});
   await prisma.anggaran.deleteMany({});
@@ -39,6 +43,102 @@ async function main() {
   });
 
   console.log(`⛪ Created Paroki: ${paroki.nama}`);
+
+  // Seed Fund Categories
+  const fundCategories = [
+    { code: 'OPERASIONAL', name: 'Operasional', description: 'Dana Operasional Paroki' },
+    { code: 'LITURGI', name: 'Liturgi', description: 'Dana Liturgi' },
+    { code: 'PEMBANGUNAN', name: 'Pembangunan', description: 'Dana Pembangunan' },
+    { code: 'PEMELIHARAAN_ASET', name: 'Pemeliharaan Aset', description: 'Dana Pemeliharaan Aset' },
+    { code: 'PSE', name: 'PSE (Sosial)', description: 'Dana Pengembangan Sosial Ekonomi' },
+    { code: 'PENDIDIKAN', name: 'Pendidikan', description: 'Dana Pendidikan' },
+    { code: 'OMK', name: 'OMK', description: 'Dana Orang Muda Katolik' },
+    { code: 'LINGKUNGAN', name: 'Lingkungan', description: 'Dana Lingkungan' },
+    { code: 'KOMISI', name: 'Komisi', description: 'Dana Komisi-komisi Paroki' },
+    { code: 'KEUSKUPAN', name: 'Keuskupan', description: 'Dana Keuskupan' },
+    { code: 'MISI', name: 'Misi', description: 'Dana Misi' },
+    { code: 'CADANGAN', name: 'Cadangan', description: 'Dana Cadangan / Darurat' },
+    { code: 'KHUSUS', name: 'Khusus', description: 'Dana Khusus / Event' },
+  ];
+
+  for (const fund of fundCategories) {
+    await prisma.fundCategory.create({
+      data: {
+        code: fund.code,
+        name: fund.name,
+        description: fund.description,
+        isActive: true,
+        parokiId: paroki.id,
+      },
+    });
+  }
+  console.log('✅ Seeded default Fund Categories.');
+
+  // Seed Income Types
+  const incomeTypes = [
+    { code: 'KOLEKTE_MINGGUAN', name: 'Kolekte Mingguan', description: 'Kolekte Misa Hari Minggu' },
+    { code: 'KOLEKTE_HARIAN', name: 'Kolekte Harian', description: 'Kolekte Misa Harian' },
+    { code: 'PERSEMBAHAN', name: 'Persembahan', description: 'Persembahan Umat' },
+    { code: 'DONASI', name: 'Donasi', description: 'Donasi / Sumbangan Umum' },
+    { code: 'DONASI_PEMBANGUNAN', name: 'Donasi Pembangunan', description: 'Donasi khusus Pembangunan' },
+    { code: 'DONASI_PENDIDIKAN', name: 'Donasi Pendidikan', description: 'Donasi khusus Pendidikan' },
+    { code: 'DONASI_SOSIAL', name: 'Donasi Sosial', description: 'Donasi khusus Sosial / PSE' },
+    { code: 'APP', name: 'Aksi Puasa Pembangunan (APP)', description: 'Dana APP' },
+    { code: 'SEWA_AULA', name: 'Sewa Aula', description: 'Penerimaan dari Sewa Aula' },
+    { code: 'SEWA_PARKIR', name: 'Sewa Parkir', description: 'Penerimaan dari Sewa Lahan Parkir' },
+    { code: 'BUNGA_DEPOSITO', name: 'Bunga Deposito', description: 'Pendapatan Bunga Deposito' },
+    { code: 'HASIL_INVESTASI', name: 'Hasil Investasi', description: 'Pendapatan dari Hasil Investasi' },
+    { code: 'PENDAPATAN_LAINNYA', name: 'Pendapatan Lainnya', description: 'Pendapatan operasional lainnya' },
+  ];
+
+  for (const inc of incomeTypes) {
+    await prisma.incomeType.create({
+      data: {
+        code: inc.code,
+        name: inc.name,
+        description: inc.description,
+        isActive: true,
+        parokiId: paroki.id,
+      },
+    });
+  }
+  console.log('✅ Seeded default Income Types.');
+
+  // Seed Expense Types
+  const expenseTypes = [
+    { code: 'LISTRIK', name: 'Listrik', description: 'Biaya utilitas listrik' },
+    { code: 'AIR', name: 'Air', description: 'Biaya utilitas air' },
+    { code: 'INTERNET', name: 'Internet', description: 'Biaya utilitas internet' },
+    { code: 'GAJI_KARYAWAN', name: 'Gaji Karyawan', description: 'Biaya SDM / Gaji' },
+    { code: 'ATK', name: 'ATK', description: 'Biaya Administrasi / ATK' },
+    { code: 'HOSTI', name: 'Hosti', description: 'Biaya Hosti Liturgi' },
+    { code: 'ANGGUR_MISA', name: 'Anggur Misa', description: 'Biaya Anggur Misa Liturgi' },
+    { code: 'BANTUAN_SOSIAL', name: 'Bantuan Sosial', description: 'Bantuan Sosial kemasyarakatan' },
+    { code: 'BANTUAN_KESEHATAN', name: 'Bantuan Kesehatan', description: 'Bantuan Kesehatan umat' },
+    { code: 'MATERIAL_BANGUNAN', name: 'Material Bangunan', description: 'Biaya belanja material bangunan' },
+    { code: 'UPAH_TUKANG', name: 'Upah Tukang', description: 'Biaya upah tenaga tukang' },
+    { code: 'SEMINAR', name: 'Seminar', description: 'Biaya pelaksanaan seminar' },
+    { code: 'PELATIHAN', name: 'Pelatihan', description: 'Biaya pelatihan dan pembinaan' },
+    { code: 'RETRET', name: 'Retret', description: 'Biaya pelaksanaan retret' },
+    { code: 'REKOLEKSI', name: 'Rekoleksi', description: 'Biaya pelaksanaan rekoleksi' },
+    { code: 'GATHERING', name: 'Gathering', description: 'Biaya gathering dan kebersamaan' },
+    { code: 'PEMELIHARAAN_GEDUNG', name: 'Pemeliharaan Gedung', description: 'Biaya perawatan gedung' },
+    { code: 'PEMELIHARAAN_KENDARAAN', name: 'Pemeliharaan Kendaraan', description: 'Biaya perawatan kendaraan' },
+  ];
+
+  for (const exp of expenseTypes) {
+    await prisma.expenseType.create({
+      data: {
+        code: exp.code,
+        name: exp.name,
+        description: exp.description,
+        isActive: true,
+        parokiId: paroki.id,
+      },
+    });
+  }
+  console.log('✅ Seeded default Expense Types.');
+
 
   // 3. Create default Komisi
   const komisiLiturgi = await prisma.komisi.create({

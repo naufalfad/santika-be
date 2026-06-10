@@ -51,6 +51,11 @@ model Paroki {
   kasMasuk     KasMasuk[]
   kasKeluar    KasKeluar[]
   auditLogs    AuditLog[]
+
+  fundCategories   FundCategory[]
+  incomeTypes      IncomeType[]
+  expenseTypes     ExpenseType[]
+  cashTransactions CashTransaction[]
 }
 
 model User {
@@ -68,6 +73,7 @@ model User {
   pengajuan        Pengajuan[]
   approvals        ApprovalHistory[]
   auditLogs        AuditLog[]
+  createdTransactions CashTransaction[] @relation("CreatedTransactions")
 }
 
 model Komisi {
@@ -219,6 +225,80 @@ model Attachment {
 
   kasKeluar    KasKeluar?
   spjLampiran  SpjLampiran?
+  cashTransaction CashTransaction?
+}
+
+model FundCategory {
+  id           String            @id @default(uuid())
+  code         String
+  name         String
+  description  String?
+  isActive     Boolean           @default(true)
+  parokiId     String
+  paroki       Paroki            @relation(fields: [parokiId], references: [id])
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  transactions CashTransaction[]
+
+  @@unique([parokiId, code])
+  @@unique([parokiId, name])
+}
+
+model IncomeType {
+  id           String            @id @default(uuid())
+  code         String
+  name         String
+  description  String?
+  isActive     Boolean           @default(true)
+  parokiId     String
+  paroki       Paroki            @relation(fields: [parokiId], references: [id])
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  transactions CashTransaction[]
+
+  @@unique([parokiId, code])
+  @@unique([parokiId, name])
+}
+
+model ExpenseType {
+  id           String            @id @default(uuid())
+  code         String
+  name         String
+  description  String?
+  isActive     Boolean           @default(true)
+  parokiId     String
+  paroki       Paroki            @relation(fields: [parokiId], references: [id])
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  transactions CashTransaction[]
+
+  @@unique([parokiId, code])
+  @@unique([parokiId, name])
+}
+
+model CashTransaction {
+  id              String        @id @default(uuid())
+  transactionNo   String
+  transactionDate DateTime
+  transactionType String        // "INCOME" | "EXPENSE"
+  fundCategoryId  String
+  fundCategory    FundCategory  @relation(fields: [fundCategoryId], references: [id])
+  incomeTypeId    String?
+  incomeType      IncomeType?   @relation(fields: [incomeTypeId], references: [id])
+  expenseTypeId   String?
+  expenseType     ExpenseType?  @relation(fields: [expenseTypeId], references: [id])
+  amount          Decimal       @db.Decimal(15, 2)
+  description     String
+  attachmentId    String?       @unique
+  attachment      Attachment?   @relation(fields: [attachmentId], references: [id])
+  createdById     String
+  createdBy       User          @relation("CreatedTransactions", fields: [createdById], references: [id])
+  parokiId        String
+  paroki          Paroki        @relation(fields: [parokiId], references: [id])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([parokiId, transactionNo])
 }
 
 model AuditLog {

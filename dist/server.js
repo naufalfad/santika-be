@@ -15,6 +15,10 @@ const kas_masuk_routes_1 = __importDefault(require("./modules/kas-masuk/kas-masu
 const kas_keluar_routes_1 = __importDefault(require("./modules/kas-keluar/kas-keluar.routes"));
 const anggaran_routes_1 = __importDefault(require("./modules/anggaran/anggaran.routes"));
 const approval_routes_1 = __importDefault(require("./modules/approval/approval.routes"));
+const fund_category_routes_1 = __importDefault(require("./modules/fund-category/fund-category.routes"));
+const income_type_routes_1 = __importDefault(require("./modules/income-type/income-type.routes"));
+const expense_type_routes_1 = __importDefault(require("./modules/expense-type/expense-type.routes"));
+const cash_transaction_routes_1 = __importDefault(require("./modules/cash-transaction/cash-transaction.routes"));
 const path_1 = __importDefault(require("path"));
 const app = (0, express_1.default)();
 // Security Middlewares
@@ -32,6 +36,10 @@ app.use('/api/v1/kas/masuk', kas_masuk_routes_1.default);
 app.use('/api/v1/kas/keluar', kas_keluar_routes_1.default);
 app.use('/api/v1/anggaran', anggaran_routes_1.default);
 app.use('/api/v1/approvals', approval_routes_1.default);
+app.use('/api/v1/fund-categories', fund_category_routes_1.default);
+app.use('/api/v1/income-types', income_type_routes_1.default);
+app.use('/api/v1/expense-types', expense_type_routes_1.default);
+app.use('/api/v1/cash', cash_transaction_routes_1.default);
 // Health Check Route
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok', timestamp: new Date() });

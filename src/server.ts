@@ -10,6 +10,10 @@ import kasMasukRouter from './modules/kas-masuk/kas-masuk.routes';
 import kasKeluarRouter from './modules/kas-keluar/kas-keluar.routes';
 import anggaranRouter from './modules/anggaran/anggaran.routes';
 import approvalRouter from './modules/approval/approval.routes';
+import fundCategoryRouter from './modules/fund-category/fund-category.routes';
+import incomeTypeRouter from './modules/income-type/income-type.routes';
+import expenseTypeRouter from './modules/expense-type/expense-type.routes';
+import cashTransactionRouter from './modules/cash-transaction/cash-transaction.routes';
 import path from 'path';
 
 const app = express();
@@ -32,6 +36,10 @@ app.use('/api/v1/kas/masuk', kasMasukRouter);
 app.use('/api/v1/kas/keluar', kasKeluarRouter);
 app.use('/api/v1/anggaran', anggaranRouter);
 app.use('/api/v1/approvals', approvalRouter);
+app.use('/api/v1/fund-categories', fundCategoryRouter);
+app.use('/api/v1/income-types', incomeTypeRouter);
+app.use('/api/v1/expense-types', expenseTypeRouter);
+app.use('/api/v1/cash', cashTransactionRouter);
 
 // Health Check Route
 app.get('/health', (req, res) => {

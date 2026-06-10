@@ -1,0 +1,16 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const income_type_controller_1 = require("./income-type.controller");
+const auth_middleware_1 = require("../../common/middleware/auth.middleware");
+const rbac_guard_1 = require("../../common/guards/rbac.guard");
+const validation_middleware_1 = require("../../common/middleware/validation.middleware");
+const income_type_schema_1 = require("./income-type.schema");
+const client_1 = require("@prisma/client");
+const router = (0, express_1.Router)();
+router.use(auth_middleware_1.authenticate);
+router.get('/', (0, rbac_guard_1.authorize)(client_1.Role.BENDAHARA, client_1.Role.PASTOR, client_1.Role.DEWAN_KEUANGAN), income_type_controller_1.IncomeTypeController.getIncomeTypes);
+router.post('/', (0, rbac_guard_1.authorize)(client_1.Role.BENDAHARA), (0, validation_middleware_1.validateRequest)(income_type_schema_1.createIncomeTypeSchema), income_type_controller_1.IncomeTypeController.createIncomeType);
+router.put('/:id', (0, rbac_guard_1.authorize)(client_1.Role.BENDAHARA), (0, validation_middleware_1.validateRequest)(income_type_schema_1.updateIncomeTypeSchema), income_type_controller_1.IncomeTypeController.updateIncomeType);
+router.delete('/:id', (0, rbac_guard_1.authorize)(client_1.Role.BENDAHARA), income_type_controller_1.IncomeTypeController.deleteIncomeType);
+exports.default = router;
