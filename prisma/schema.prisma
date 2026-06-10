@@ -64,6 +64,10 @@ model User {
   password     String
   name         String
   role         Role
+  // Avatar URL — satu-satunya field yang boleh diedit mandiri oleh pengguna.
+  // Audit trail (name, email, role, parokiId) adalah READ-ONLY untuk menjaga
+  // integritas akuntabilitas pada AuditLog dan ApprovalHistory.
+  avatarUrl    String?
   isActive     Boolean           @default(true)
   parokiId     String
   paroki       Paroki            @relation(fields: [parokiId], references: [id])
