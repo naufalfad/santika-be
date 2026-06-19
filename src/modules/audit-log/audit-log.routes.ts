@@ -6,9 +6,9 @@ import { Role } from '@prisma/client';
 
 const router = Router();
 
-// Secure route: only logged in SUPER_ADMIN and PASTOR can view audit logs
+// Secure route: only logged in SUPER_ADMIN, PASTOR, and BENDAHARA can view audit logs
 router.use(authenticate);
-router.use(authorize(Role.SUPER_ADMIN, Role.PASTOR));
+router.use(authorize(Role.SUPER_ADMIN, Role.PASTOR, Role.BENDAHARA));
 
 router.get('/', AuditLogController.getLogs);
 
