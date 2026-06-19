@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ReportService = void 0;
 const database_1 = require("../../config/database");
 class ReportService {
-    static BASE_SALDO_AWAL = 1200000000; // Rp 1.200.000.000
+    static BASE_SALDO_AWAL = 1000000000; // Rp 1.000.000.000
     /**
      * Helper to parse period (YYYY-MM) and return start and end dates in UTC
      */

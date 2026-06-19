@@ -17,6 +17,7 @@ import cashTransactionRouter from './modules/cash-transaction/cash-transaction.r
 import spjRouter from './modules/spj/spj.routes';
 import specialFundRouter from './modules/special-fund/special-fund.routes';
 import reportRouter from './modules/report/report.routes';
+import auditLogRouter from './modules/audit-log/audit-log.routes';
 import { initSpecialFundScheduler } from './modules/special-fund/special-fund.cron';
 import path from 'path';
 
@@ -47,6 +48,7 @@ app.use('/api/v1/cash', cashTransactionRouter);
 app.use('/api/v1/spj', spjRouter);
 app.use('/api/v1/special-funds', specialFundRouter);
 app.use('/api/v1/reports', reportRouter);
+app.use('/api/v1/audit-logs', auditLogRouter);
 
 // Health Check Route
 app.get('/health', (req, res) => {

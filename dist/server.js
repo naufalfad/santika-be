@@ -22,6 +22,7 @@ const cash_transaction_routes_1 = __importDefault(require("./modules/cash-transa
 const spj_routes_1 = __importDefault(require("./modules/spj/spj.routes"));
 const special_fund_routes_1 = __importDefault(require("./modules/special-fund/special-fund.routes"));
 const report_routes_1 = __importDefault(require("./modules/report/report.routes"));
+const audit_log_routes_1 = __importDefault(require("./modules/audit-log/audit-log.routes"));
 const special_fund_cron_1 = require("./modules/special-fund/special-fund.cron");
 const path_1 = __importDefault(require("path"));
 const app = (0, express_1.default)();
@@ -47,6 +48,7 @@ app.use('/api/v1/cash', cash_transaction_routes_1.default);
 app.use('/api/v1/spj', spj_routes_1.default);
 app.use('/api/v1/special-funds', special_fund_routes_1.default);
 app.use('/api/v1/reports', report_routes_1.default);
+app.use('/api/v1/audit-logs', audit_log_routes_1.default);
 // Health Check Route
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok', timestamp: new Date() });
