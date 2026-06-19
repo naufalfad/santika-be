@@ -1,0 +1,16 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const report_controller_1 = require("./report.controller");
+const auth_middleware_1 = require("../../common/middleware/auth.middleware");
+const rbac_guard_1 = require("../../common/guards/rbac.guard");
+const validation_middleware_1 = require("../../common/middleware/validation.middleware");
+const report_schema_1 = require("./report.schema");
+const client_1 = require("@prisma/client");
+const router = (0, express_1.Router)();
+router.use(auth_middleware_1.authenticate);
+router.use((0, rbac_guard_1.authorize)(client_1.Role.SUPER_ADMIN, client_1.Role.PASTOR, client_1.Role.BENDAHARA, client_1.Role.DEWAN_KEUANGAN));
+router.get('/bku', (0, validation_middleware_1.validateRequest)(report_schema_1.getReportQuerySchema), report_controller_1.ReportController.getBkuReport);
+router.get('/cash-flow', (0, validation_middleware_1.validateRequest)(report_schema_1.getReportQuerySchema), report_controller_1.ReportController.getCashFlowReport);
+router.get('/budget-realisation', (0, validation_middleware_1.validateRequest)(report_schema_1.getBudgetReportQuerySchema), report_controller_1.ReportController.getBudgetRealisationReport);
+exports.default = router;

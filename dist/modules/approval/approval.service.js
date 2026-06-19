@@ -6,6 +6,43 @@ const api_error_1 = require("../../common/utils/api-error");
 const client_1 = require("@prisma/client");
 class ApprovalService {
     /**
+     * Helper to calculate available budget dynamically:
+     * Plafon - Realisasi (EXPENSE transactions) - Pending/Approved proposals
+     */
+    static async calculateAvailableBudget(tx, budgetItemId, excludeProposalId) {
+        const item = await tx.budgetItem.findUnique({
+            where: { id: budgetItemId },
+        });
+        if (!item)
+            return 0;
+        // Sum all transaction expenses
+        const realAgg = await tx.cashTransaction.aggregate({
+            where: {
+                budgetItemId,
+                transactionType: 'EXPENSE',
+            },
+            _sum: { amount: true },
+        });
+        const realisasi = Number(realAgg._sum.amount || 0);
+        // Sum all pending/approved proposals
+        const propAgg = await tx.pengajuan.aggregate({
+            where: {
+                budgetItemId,
+                status: {
+                    in: [
+                        client_1.ApprovalStatus.MENUNGGU_VERIFIKASI,
+                        client_1.ApprovalStatus.MENUNGGU_PERSETUJUAN,
+                        client_1.ApprovalStatus.DISETUJUI,
+                    ],
+                },
+                ...(excludeProposalId && { id: { not: excludeProposalId } }),
+            },
+            _sum: { nominal: true },
+        });
+        const pending = Number(propAgg._sum.nominal || 0);
+        return Number(item.plafon) - realisasi - pending;
+    }
+    /**
      * Get list of Pengajuan scoped to Paroki, with RBAC scoping
      */
     static async getApprovals(parokiId, actorId, role, filters) {
@@ -38,8 +75,13 @@ class ApprovalService {
                         role: true,
                     },
                 },
-                anggaran: {
+                budgetItem: {
                     include: {
+                        budget: {
+                            include: {
+                                fundCategory: true,
+                            },
+                        },
                         komisi: true,
                     },
                 },
@@ -65,35 +107,28 @@ class ApprovalService {
         });
     }
     /**
-     * Create a new Pengajuan
+     * Create a new Pengajuan (Proposal)
      */
     static async createPengajuan(parokiId, actorId, input) {
-        // 1. Fetch Anggaran and check bounds
-        const anggaran = await database_1.prisma.anggaran.findUnique({
-            where: { id: input.anggaranId },
-            include: { komisi: true },
+        // 1. Fetch BudgetItem and check boundaries
+        const budgetItem = await database_1.prisma.budgetItem.findUnique({
+            where: { id: input.budgetItemId },
+            include: { budget: true },
         });
-        if (!anggaran) {
-            throw api_error_1.ApiError.notFound('Anggaran tidak ditemukan');
+        if (!budgetItem) {
+            throw api_error_1.ApiError.notFound('Item Anggaran tidak ditemukan');
         }
-        if (anggaran.parokiId !== parokiId) {
-            throw api_error_1.ApiError.forbidden('Anggaran berada di luar paroki Anda');
+        if (budgetItem.budget.parokiId !== parokiId) {
+            throw api_error_1.ApiError.forbidden('Item Anggaran berada di luar paroki Anda');
         }
-        // 2. Validate nominal <= sisa budget
-        if (input.nominal > Number(anggaran.sisa)) {
-            throw api_error_1.ApiError.badRequest('Nominal pengajuan melebihi sisa anggaran yang tersedia');
+        if (!budgetItem.komisiId) {
+            throw api_error_1.ApiError.badRequest('Item anggaran ini bersifat umum paroki dan tidak dikelola oleh Komisi');
         }
-        // 3. Execute creation in transaction to ensure audit history consistency
+        // 2. Execute creation in transaction to verify dynamic limits and log history
         return await database_1.prisma.$transaction(async (tx) => {
-            // Re-verify budget inside transaction lock (optional but recommended for concurrency)
-            const freshAnggaran = await tx.anggaran.findUnique({
-                where: { id: input.anggaranId },
-            });
-            if (!freshAnggaran) {
-                throw api_error_1.ApiError.notFound('Anggaran tidak ditemukan');
-            }
-            if (input.nominal > Number(freshAnggaran.sisa)) {
-                throw api_error_1.ApiError.badRequest('Nominal pengajuan melebihi sisa anggaran yang tersedia');
+            const available = await this.calculateAvailableBudget(tx, input.budgetItemId);
+            if (input.nominal > available) {
+                throw api_error_1.ApiError.badRequest(`Nominal pengajuan melebihi sisa anggaran yang tersedia (Tersedia: Rp ${available.toLocaleString('id-ID')})`);
             }
             // Create Proposal
             const newPengajuan = await tx.pengajuan.create({
@@ -102,8 +137,8 @@ class ApprovalService {
                     nominal: input.nominal,
                     tujuan: input.tujuan,
                     status: client_1.ApprovalStatus.MENUNGGU_VERIFIKASI,
-                    komisiId: anggaran.komisiId,
-                    anggaranId: input.anggaranId,
+                    komisiId: budgetItem.komisiId,
+                    budgetItemId: input.budgetItemId,
                     pemohonId: actorId,
                 },
                 include: {
@@ -115,8 +150,13 @@ class ApprovalService {
                             role: true,
                         },
                     },
-                    anggaran: {
+                    budgetItem: {
                         include: {
+                            budget: {
+                                include: {
+                                    fundCategory: true,
+                                },
+                            },
                             komisi: true,
                         },
                     },
@@ -155,12 +195,14 @@ class ApprovalService {
      * Update Proposal Status / Process State Machine Transitions
      */
     static async updateApprovalStatus(parokiId, actorId, role, id, input) {
-        // 1. Fetch current Pengajuan and verify Paroki scope
+        // 1. Fetch current Pengajuan
         const pengajuan = await database_1.prisma.pengajuan.findUnique({
             where: { id },
             include: {
                 pemohon: true,
-                anggaran: true,
+                budgetItem: {
+                    include: { budget: true },
+                },
             },
         });
         if (!pengajuan) {
@@ -231,18 +273,13 @@ class ApprovalService {
         else {
             throw api_error_1.ApiError.forbidden('Anda tidak memiliki wewenang untuk memproses pengajuan ini');
         }
-        // 3. Execute update in transaction to guarantee consistency
+        // 3. Execute update in transaction to verify dynamic limits and log history
         return await database_1.prisma.$transaction(async (tx) => {
-            // Re-verify remaining budget balance to prevent over-allocation if status changes back to flow
+            // Re-verify budget item limit inside transaction lock to prevent over-allocation
             if (newStatus === client_1.ApprovalStatus.DISETUJUI || newStatus === client_1.ApprovalStatus.MENUNGGU_VERIFIKASI) {
-                const freshAnggaran = await tx.anggaran.findUnique({
-                    where: { id: pengajuan.anggaranId },
-                });
-                if (!freshAnggaran) {
-                    throw api_error_1.ApiError.notFound('Anggaran tidak ditemukan');
-                }
-                if (Number(pengajuan.nominal) > Number(freshAnggaran.sisa)) {
-                    throw api_error_1.ApiError.badRequest('Nominal pengajuan melebihi sisa anggaran yang tersedia');
+                const available = await this.calculateAvailableBudget(tx, pengajuan.budgetItemId, id);
+                if (Number(pengajuan.nominal) > available) {
+                    throw api_error_1.ApiError.badRequest(`Nominal pengajuan melebihi sisa anggaran yang tersedia (Tersedia: Rp ${available.toLocaleString('id-ID')})`);
                 }
             }
             // Update Pengajuan status
@@ -258,8 +295,13 @@ class ApprovalService {
                             role: true,
                         },
                     },
-                    anggaran: {
+                    budgetItem: {
                         include: {
+                            budget: {
+                                include: {
+                                    fundCategory: true,
+                                },
+                            },
                             komisi: true,
                         },
                     },

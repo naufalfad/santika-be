@@ -7,7 +7,7 @@ export class AnggaranController {
       const parokiId = req.user!.parokiId;
       const filters = {
         tahun: req.query.tahun ? Number(req.query.tahun) : undefined,
-        komisiId: req.query.komisiId as string | undefined,
+        fund_category_id: req.query.fund_category_id as string | undefined,
       };
 
       const budgets = await AnggaranService.getAnggaran(parokiId, filters);
@@ -16,6 +16,22 @@ export class AnggaranController {
         status: 'success',
         data: {
           budgets,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getKomisi(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const komisi = await AnggaranService.getKomisi(parokiId);
+
+      res.status(200).json({
+        status: 'success',
+        data: {
+          komisi,
         },
       });
     } catch (error) {
@@ -65,6 +81,26 @@ export class AnggaranController {
         data: {
           budget: updatedBudget,
         },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async getAnggaranDashboard(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const tahun = req.query.tahun ? Number(req.query.tahun) : new Date().getFullYear();
+      const fund_category_id = req.query.fund_category_id as string | undefined;
+
+      const dashboard = await AnggaranService.getAnggaranDashboard(parokiId, {
+        tahun,
+        fund_category_id,
+      });
+
+      res.status(200).json({
+        status: 'success',
+        data: dashboard,
       });
     } catch (error) {
       next(error);

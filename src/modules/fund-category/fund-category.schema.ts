@@ -28,5 +28,15 @@ export const updateFundCategorySchema = z.object({
   }),
 });
 
+export const transferFundCategoryBalanceSchema = z.object({
+  body: z.object({
+    source_fund_category_id: z.string().uuid('Invalid source fund category ID format'),
+    target_fund_category_id: z.string().uuid('Invalid target fund category ID format'),
+    amount: z.number({ message: 'Amount is required' }).positive('Amount must be a positive number'),
+    description: z.string().min(3, 'Description must be at least 3 characters'),
+  }),
+});
+
 export type CreateFundCategoryInput = z.infer<typeof createFundCategorySchema>;
 export type UpdateFundCategoryInput = z.infer<typeof updateFundCategorySchema>;
+export type TransferFundCategoryBalanceInput = z.infer<typeof transferFundCategoryBalanceSchema>;

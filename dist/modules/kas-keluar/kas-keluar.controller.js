@@ -9,7 +9,7 @@ class KasKeluarController {
             const filters = {
                 search: req.query.search,
                 kategori: req.query.kategori,
-                anggaranId: req.query.anggaranId,
+                budgetItemId: req.query.budgetItemId,
                 startDate: req.query.startDate,
                 endDate: req.query.endDate,
             };

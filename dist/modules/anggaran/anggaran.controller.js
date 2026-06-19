@@ -8,13 +8,28 @@ class AnggaranController {
             const parokiId = req.user.parokiId;
             const filters = {
                 tahun: req.query.tahun ? Number(req.query.tahun) : undefined,
-                komisiId: req.query.komisiId,
+                fund_category_id: req.query.fund_category_id,
             };
             const budgets = await anggaran_service_1.AnggaranService.getAnggaran(parokiId, filters);
             res.status(200).json({
                 status: 'success',
                 data: {
                     budgets,
+                },
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    static async getKomisi(req, res, next) {
+        try {
+            const parokiId = req.user.parokiId;
+            const komisi = await anggaran_service_1.AnggaranService.getKomisi(parokiId);
+            res.status(200).json({
+                status: 'success',
+                data: {
+                    komisi,
                 },
             });
         }
@@ -51,6 +66,24 @@ class AnggaranController {
                 data: {
                     budget: updatedBudget,
                 },
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+    static async getAnggaranDashboard(req, res, next) {
+        try {
+            const parokiId = req.user.parokiId;
+            const tahun = req.query.tahun ? Number(req.query.tahun) : new Date().getFullYear();
+            const fund_category_id = req.query.fund_category_id;
+            const dashboard = await anggaran_service_1.AnggaranService.getAnggaranDashboard(parokiId, {
+                tahun,
+                fund_category_id,
+            });
+            res.status(200).json({
+                status: 'success',
+                data: dashboard,
             });
         }
         catch (error) {

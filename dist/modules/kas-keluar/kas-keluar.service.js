@@ -19,8 +19,8 @@ class KasKeluarService {
         if (filters.kategori) {
             whereClause.kategori = filters.kategori;
         }
-        if (filters.anggaranId) {
-            whereClause.anggaranId = filters.anggaranId;
+        if (filters.budgetItemId) {
+            whereClause.budgetItemId = filters.budgetItemId;
         }
         if (filters.startDate || filters.endDate) {
             whereClause.tanggal = {};
@@ -38,8 +38,13 @@ class KasKeluarService {
             where: whereClause,
             include: {
                 attachment: true,
-                anggaran: {
+                budgetItem: {
                     include: {
+                        budget: {
+                            include: {
+                                fundCategory: true,
+                            },
+                        },
                         komisi: true,
                     },
                 },
@@ -51,36 +56,36 @@ class KasKeluarService {
         });
     }
     /**
-     * Create a new Kas Keluar record
+     * Create a new Kas Keluar record (legacy)
      */
     static async createKasKeluar(parokiId, actorId, input, file) {
         return await database_1.prisma.$transaction(async (tx) => {
             let attachmentId = undefined;
-            // 1. Process budget check and deduction if anggaranId is supplied
-            if (input.anggaranId) {
-                const anggaran = await tx.anggaran.findUnique({
-                    where: { id: input.anggaranId },
+            // 1. Process budget check if budgetItemId is supplied
+            if (input.budgetItemId) {
+                const budgetItem = await tx.budgetItem.findUnique({
+                    where: { id: input.budgetItemId },
+                    include: { budget: true },
                 });
-                if (!anggaran) {
+                if (!budgetItem) {
                     throw api_error_1.ApiError.notFound('Pos Anggaran tidak ditemukan');
                 }
-                if (anggaran.parokiId !== parokiId) {
+                if (budgetItem.budget.parokiId !== parokiId) {
                     throw api_error_1.ApiError.forbidden('Pos Anggaran berada di luar paroki Anda');
                 }
-                const remaining = Number(anggaran.plafon) - Number(anggaran.terpakai);
-                if (input.jumlah > remaining) {
-                    throw api_error_1.ApiError.badRequest(`Plafon anggaran tidak mencukupi. Sisa: Rp ${remaining.toLocaleString('id-ID')}, Dibutuhkan: Rp ${input.jumlah.toLocaleString('id-ID')}`);
-                }
-                // Deduct from budget
-                const newTerpakai = Number(anggaran.terpakai) + input.jumlah;
-                const newSisa = Number(anggaran.plafon) - newTerpakai;
-                await tx.anggaran.update({
-                    where: { id: input.anggaranId },
-                    data: {
-                        terpakai: newTerpakai,
-                        sisa: newSisa,
+                // Calculate sisa dynamically
+                const realAgg = await tx.cashTransaction.aggregate({
+                    where: {
+                        budgetItemId: input.budgetItemId,
+                        transactionType: 'EXPENSE',
                     },
+                    _sum: { amount: true },
                 });
+                const currentRealisasi = Number(realAgg._sum.amount || 0);
+                const sisa = Number(budgetItem.plafon) - currentRealisasi;
+                if (input.jumlah > sisa) {
+                    throw api_error_1.ApiError.badRequest(`Plafon anggaran tidak mencukupi. Sisa: Rp ${sisa.toLocaleString('id-ID')}, Dibutuhkan: Rp ${input.jumlah.toLocaleString('id-ID')}`);
+                }
             }
             // 2. Handle File Attachment
             if (file) {
@@ -103,13 +108,13 @@ class KasKeluarService {
                     penerima: input.penerima,
                     jumlah: input.jumlah,
                     status: 'Selesai',
-                    anggaranId: input.anggaranId || null,
+                    budgetItemId: input.budgetItemId || null,
                     attachmentId: attachmentId || null,
                     parokiId,
                 },
                 include: {
                     attachment: true,
-                    anggaran: true,
+                    budgetItem: true,
                 },
             });
             // 4. Create Audit Log
@@ -121,7 +126,7 @@ class KasKeluarService {
             await tx.auditLog.create({
                 data: {
                     type: 'OUT',
-                    action: `Mencatat Kas Keluar untuk ${input.penerima} kategori ${input.kategori} senilai ${formattedAmount}`,
+                    action: `Mencatat Kas Keluar (Legacy) untuk ${input.penerima} kategori ${input.kategori} senilai ${formattedAmount}`,
                     amount: input.jumlah,
                     actorId,
                     parokiId,
@@ -131,14 +136,14 @@ class KasKeluarService {
         });
     }
     /**
-     * Update an existing Kas Keluar record
+     * Update an existing Kas Keluar record (legacy)
      */
     static async updateKasKeluar(parokiId, actorId, id, input, file) {
         return await database_1.prisma.$transaction(async (tx) => {
             // 1. Fetch existing record and boundaries
             const existing = await tx.kasKeluar.findUnique({
                 where: { id },
-                include: { attachment: true, anggaran: true },
+                include: { attachment: true, budgetItem: true },
             });
             if (!existing) {
                 throw api_error_1.ApiError.notFound('Transaksi Kas Keluar tidak ditemukan');
@@ -147,53 +152,32 @@ class KasKeluarService {
                 throw api_error_1.ApiError.forbidden('Anda tidak memiliki akses untuk mengubah transaksi ini');
             }
             const updatedJumlah = input.jumlah !== undefined ? input.jumlah : Number(existing.jumlah);
-            // Wait, Zod transform of null for anggaranId could be passed as input.anggaranId: null
-            const updatedAnggaranId = input.anggaranId !== undefined ? input.anggaranId : existing.anggaranId;
-            // 2. Budget adjustment logic if budget OR amount changed
-            const budgetOrAmountChanged = updatedJumlah !== Number(existing.jumlah) || updatedAnggaranId !== existing.anggaranId;
-            if (budgetOrAmountChanged) {
-                // Step 2a: Revert old budget deduction if previously linked
-                if (existing.anggaranId) {
-                    const oldAnggaran = await tx.anggaran.findUnique({
-                        where: { id: existing.anggaranId },
-                    });
-                    if (oldAnggaran) {
-                        const revertedTerpakai = Number(oldAnggaran.terpakai) - Number(existing.jumlah);
-                        const revertedSisa = Number(oldAnggaran.plafon) - revertedTerpakai;
-                        await tx.anggaran.update({
-                            where: { id: oldAnggaran.id },
-                            data: {
-                                terpakai: revertedTerpakai,
-                                sisa: revertedSisa,
-                            },
-                        });
-                    }
+            const updatedBudgetItemId = input.budgetItemId !== undefined ? input.budgetItemId : existing.budgetItemId;
+            // 2. Budget adjustment checking if budget item OR amount changed
+            const budgetOrAmountChanged = updatedJumlah !== Number(existing.jumlah) || updatedBudgetItemId !== existing.budgetItemId;
+            if (budgetOrAmountChanged && updatedBudgetItemId) {
+                const budgetItem = await tx.budgetItem.findUnique({
+                    where: { id: updatedBudgetItemId },
+                    include: { budget: true },
+                });
+                if (!budgetItem) {
+                    throw api_error_1.ApiError.notFound('Pos Anggaran baru tidak ditemukan');
                 }
-                // Step 2b: Apply new budget deduction if currently linked
-                if (updatedAnggaranId) {
-                    const newAnggaran = await tx.anggaran.findUnique({
-                        where: { id: updatedAnggaranId },
-                    });
-                    if (!newAnggaran) {
-                        throw api_error_1.ApiError.notFound('Pos Anggaran baru tidak ditemukan');
-                    }
-                    if (newAnggaran.parokiId !== parokiId) {
-                        throw api_error_1.ApiError.forbidden('Pos Anggaran baru berada di luar paroki Anda');
-                    }
-                    const remaining = Number(newAnggaran.plafon) - Number(newAnggaran.terpakai);
-                    if (updatedJumlah > remaining) {
-                        throw api_error_1.ApiError.badRequest(`Plafon anggaran baru tidak mencukupi. Sisa: Rp ${remaining.toLocaleString('id-ID')}, Dibutuhkan: Rp ${updatedJumlah.toLocaleString('id-ID')}`);
-                    }
-                    // Deduct budget
-                    const newTerpakai = Number(newAnggaran.terpakai) + updatedJumlah;
-                    const newSisa = Number(newAnggaran.plafon) - newTerpakai;
-                    await tx.anggaran.update({
-                        where: { id: updatedAnggaranId },
-                        data: {
-                            terpakai: newTerpakai,
-                            sisa: newSisa,
-                        },
-                    });
+                if (budgetItem.budget.parokiId !== parokiId) {
+                    throw api_error_1.ApiError.forbidden('Pos Anggaran baru berada di luar paroki Anda');
+                }
+                // Calculate sisa dynamically
+                const realAgg = await tx.cashTransaction.aggregate({
+                    where: {
+                        budgetItemId: updatedBudgetItemId,
+                        transactionType: 'EXPENSE',
+                    },
+                    _sum: { amount: true },
+                });
+                const currentRealisasi = Number(realAgg._sum.amount || 0);
+                const sisa = Number(budgetItem.plafon) - currentRealisasi;
+                if (updatedJumlah > sisa) {
+                    throw api_error_1.ApiError.badRequest(`Plafon anggaran baru tidak mencukupi. Sisa: Rp ${sisa.toLocaleString('id-ID')}, Dibutuhkan: Rp ${updatedJumlah.toLocaleString('id-ID')}`);
                 }
             }
             // 3. Handle File Attachment updates
@@ -224,10 +208,10 @@ class KasKeluarService {
                     kategori: input.kategori,
                     penerima: input.penerima,
                     jumlah: input.jumlah,
-                    anggaranId: updatedAnggaranId,
+                    budgetItemId: updatedBudgetItemId,
                     attachmentId,
                 },
-                include: { attachment: true, anggaran: true },
+                include: { attachment: true, budgetItem: true },
             });
             // 5. Clean up old attachment file and DB record if overridden
             if (file && existing.attachment) {
@@ -257,7 +241,7 @@ class KasKeluarService {
             await tx.auditLog.create({
                 data: {
                     type: 'OUT',
-                    action: `Memperbarui transaksi Kas Keluar: ${targetPenerima} senilai ${formattedAmount}`,
+                    action: `Memperbarui transaksi Kas Keluar (Legacy): ${targetPenerima} senilai ${formattedAmount}`,
                     amount: updatedJumlah,
                     actorId,
                     parokiId,
@@ -267,14 +251,14 @@ class KasKeluarService {
         });
     }
     /**
-     * Delete a Kas Keluar record
+     * Delete a Kas Keluar record (legacy)
      */
     static async deleteKasKeluar(parokiId, actorId, id) {
         return await database_1.prisma.$transaction(async (tx) => {
             // 1. Fetch transaction and boundaries
             const existing = await tx.kasKeluar.findUnique({
                 where: { id },
-                include: { attachment: true, anggaran: true },
+                include: { attachment: true, budgetItem: true },
             });
             if (!existing) {
                 throw api_error_1.ApiError.notFound('Transaksi Kas Keluar tidak ditemukan');
@@ -282,28 +266,11 @@ class KasKeluarService {
             if (existing.parokiId !== parokiId) {
                 throw api_error_1.ApiError.forbidden('Anda tidak memiliki akses untuk menghapus transaksi ini');
             }
-            // 2. Revert budget deduction if linked
-            if (existing.anggaranId) {
-                const oldAnggaran = await tx.anggaran.findUnique({
-                    where: { id: existing.anggaranId },
-                });
-                if (oldAnggaran) {
-                    const revertedTerpakai = Number(oldAnggaran.terpakai) - Number(existing.jumlah);
-                    const revertedSisa = Number(oldAnggaran.plafon) - revertedTerpakai;
-                    await tx.anggaran.update({
-                        where: { id: oldAnggaran.id },
-                        data: {
-                            terpakai: revertedTerpakai,
-                            sisa: revertedSisa,
-                        },
-                    });
-                }
-            }
-            // 3. Delete Kas Keluar record
+            // 2. Delete Kas Keluar record
             await tx.kasKeluar.delete({
                 where: { id },
             });
-            // 4. Delete attachment file and record if any
+            // 3. Delete attachment file and record if any
             if (existing.attachment) {
                 await tx.attachment.delete({
                     where: { id: existing.attachment.id },
@@ -320,7 +287,7 @@ class KasKeluarService {
                     console.error('Failed to delete physical file during deletion:', err);
                 }
             }
-            // 5. Write Audit Log
+            // 4. Write Audit Log
             const formattedAmount = new Intl.NumberFormat('id-ID', {
                 style: 'currency',
                 currency: 'IDR',
@@ -329,7 +296,7 @@ class KasKeluarService {
             await tx.auditLog.create({
                 data: {
                     type: 'OUT',
-                    action: `Menghapus transaksi Kas Keluar: ${existing.penerima} yang bernilai ${formattedAmount}`,
+                    action: `Menghapus transaksi Kas Keluar (Legacy): ${existing.penerima} yang bernilai ${formattedAmount}`,
                     amount: existing.jumlah,
                     actorId,
                     parokiId,

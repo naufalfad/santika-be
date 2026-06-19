@@ -12,8 +12,8 @@ exports.createKasKeluarSchema = zod_1.z.object({
         jumlah: zod_1.z.preprocess((val) => (typeof val === 'string' ? Number(val) : val), zod_1.z.number({
             message: 'Jumlah must be a positive number',
         }).positive('Jumlah must be a positive number')),
-        anggaranId: zod_1.z
-            .preprocess((val) => (val === '' || val === 'null' || val === 'undefined' ? undefined : val), zod_1.z.string().uuid('Invalid Anggaran ID format'))
+        budgetItemId: zod_1.z
+            .preprocess((val) => (val === '' || val === 'null' || val === 'undefined' ? undefined : val), zod_1.z.string().uuid('Invalid BudgetItem ID format'))
             .optional(),
     }),
 });
@@ -28,8 +28,8 @@ exports.updateKasKeluarSchema = zod_1.z.object({
         kategori: zod_1.z.string().min(2, 'Kategori must be at least 2 characters').optional(),
         penerima: zod_1.z.string().min(2, 'Penerima must be at least 2 characters').optional(),
         jumlah: zod_1.z.preprocess((val) => (typeof val === 'string' ? Number(val) : val), zod_1.z.number().positive('Jumlah must be a positive number')).optional(),
-        anggaranId: zod_1.z
-            .preprocess((val) => (val === '' || val === 'null' || val === 'undefined' ? null : val), zod_1.z.string().uuid('Invalid Anggaran ID format').nullable())
+        budgetItemId: zod_1.z
+            .preprocess((val) => (val === '' || val === 'null' || val === 'undefined' ? null : val), zod_1.z.string().uuid('Invalid BudgetItem ID format').nullable())
             .optional(),
     }),
 });
@@ -37,7 +37,7 @@ exports.getKasKeluarQuerySchema = zod_1.z.object({
     query: zod_1.z.object({
         search: zod_1.z.string().optional(),
         kategori: zod_1.z.string().optional(),
-        anggaranId: zod_1.z.string().uuid('Invalid Anggaran ID format').optional(),
+        budgetItemId: zod_1.z.string().uuid('Invalid BudgetItem ID format').optional(),
         startDate: zod_1.z
             .string()
             .optional()

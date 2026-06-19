@@ -13,6 +13,18 @@ export const createIncomeSchema = z.object({
       z.number({ message: 'Amount is required' }).positive('Amount must be a positive number')
     ),
     description: z.string().min(3, 'Description must be at least 3 characters'),
+    parent_transaction_id: z
+      .preprocess(
+        (val) => (val === '' || val === null || val === undefined || val === 'null' || val === 'undefined' ? undefined : val),
+        z.string().uuid('Invalid parent transaction ID format')
+      )
+      .optional(),
+    special_fund_id: z
+      .preprocess(
+        (val) => (val === '' || val === null || val === undefined || val === 'null' || val === 'undefined' ? undefined : val),
+        z.string().uuid('Invalid special fund ID format')
+      )
+      .optional(),
   }),
 });
 
@@ -24,11 +36,33 @@ export const createExpenseSchema = z.object({
     ),
     fund_category_id: z.string().uuid('Invalid fund category ID format'),
     expense_type_id: z.string().uuid('Invalid expense type ID format'),
+    budget_item_id: z
+      .preprocess(
+        (val) => (val === '' || val === null || val === undefined || val === 'null' || val === 'undefined' ? undefined : val),
+        z.string().uuid('Invalid budget item ID format')
+      )
+      .optional(),
+    permohonan_anggaran_id: z
+      .preprocess(
+        (val) => (val === '' || val === null || val === undefined || val === 'null' || val === 'undefined' ? undefined : val),
+        z.string().uuid('Invalid budget request (permohonan anggaran) ID format')
+      )
+      .optional(),
+    is_uang_muka: z.preprocess(
+      (val) => (val === 'true' || val === true),
+      z.boolean().optional()
+    ),
     amount: z.preprocess(
       (val) => (typeof val === 'string' ? Number(val) : val),
       z.number({ message: 'Amount is required' }).positive('Amount must be a positive number')
     ),
     description: z.string().min(3, 'Description must be at least 3 characters'),
+    special_fund_id: z
+      .preprocess(
+        (val) => (val === '' || val === null || val === undefined || val === 'null' || val === 'undefined' ? undefined : val),
+        z.string().uuid('Invalid special fund ID format')
+      )
+      .optional(),
   }),
 });
 

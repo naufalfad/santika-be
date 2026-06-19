@@ -9,6 +9,12 @@ exports.createIncomeSchema = zod_1.z.object({
         income_type_id: zod_1.z.string().uuid('Invalid income type ID format'),
         amount: zod_1.z.preprocess((val) => (typeof val === 'string' ? Number(val) : val), zod_1.z.number({ message: 'Amount is required' }).positive('Amount must be a positive number')),
         description: zod_1.z.string().min(3, 'Description must be at least 3 characters'),
+        parent_transaction_id: zod_1.z
+            .preprocess((val) => (val === '' || val === null || val === undefined || val === 'null' || val === 'undefined' ? undefined : val), zod_1.z.string().uuid('Invalid parent transaction ID format'))
+            .optional(),
+        special_fund_id: zod_1.z
+            .preprocess((val) => (val === '' || val === null || val === undefined || val === 'null' || val === 'undefined' ? undefined : val), zod_1.z.string().uuid('Invalid special fund ID format'))
+            .optional(),
     }),
 });
 exports.createExpenseSchema = zod_1.z.object({
@@ -16,8 +22,18 @@ exports.createExpenseSchema = zod_1.z.object({
         transaction_date: zod_1.z.preprocess((val) => (typeof val === 'string' ? new Date(val) : val), zod_1.z.date({ message: 'Invalid transaction date format' })),
         fund_category_id: zod_1.z.string().uuid('Invalid fund category ID format'),
         expense_type_id: zod_1.z.string().uuid('Invalid expense type ID format'),
+        budget_item_id: zod_1.z
+            .preprocess((val) => (val === '' || val === null || val === undefined || val === 'null' || val === 'undefined' ? undefined : val), zod_1.z.string().uuid('Invalid budget item ID format'))
+            .optional(),
+        permohonan_anggaran_id: zod_1.z
+            .preprocess((val) => (val === '' || val === null || val === undefined || val === 'null' || val === 'undefined' ? undefined : val), zod_1.z.string().uuid('Invalid budget request (permohonan anggaran) ID format'))
+            .optional(),
+        is_uang_muka: zod_1.z.preprocess((val) => (val === 'true' || val === true), zod_1.z.boolean().optional()),
         amount: zod_1.z.preprocess((val) => (typeof val === 'string' ? Number(val) : val), zod_1.z.number({ message: 'Amount is required' }).positive('Amount must be a positive number')),
         description: zod_1.z.string().min(3, 'Description must be at least 3 characters'),
+        special_fund_id: zod_1.z
+            .preprocess((val) => (val === '' || val === null || val === undefined || val === 'null' || val === 'undefined' ? undefined : val), zod_1.z.string().uuid('Invalid special fund ID format'))
+            .optional(),
     }),
 });
 exports.getCashTransactionsQuerySchema = zod_1.z.object({

@@ -36,6 +36,7 @@ class CashTransactionService {
                 fundCategory: true,
                 incomeType: true,
                 attachment: true,
+                specialFund: true,
             },
             orderBy: { transactionDate: 'desc' },
         });
@@ -72,6 +73,18 @@ class CashTransactionService {
                 fundCategory: true,
                 expenseType: true,
                 attachment: true,
+                specialFund: true,
+                spj: {
+                    include: {
+                        lampiran: {
+                            include: {
+                                attachment: true,
+                            },
+                        },
+                    },
+                },
+                parentTransaction: true,
+                childTransactions: true,
             },
             orderBy: { transactionDate: 'desc' },
         });
@@ -104,9 +117,33 @@ class CashTransactionService {
      * Create cash income
      */
     static async createIncome(parokiId, userId, input) {
+        let fundCategoryId = input.fund_category_id;
+        // Verify Special Fund if provided
+        if (input.special_fund_id) {
+            const specialFund = await database_1.prisma.specialFund.findUnique({
+                where: { id: input.special_fund_id },
+            });
+            if (!specialFund) {
+                throw api_error_1.ApiError.notFound('Dana Khusus tidak ditemukan');
+            }
+            if (specialFund.parokiId !== parokiId) {
+                throw api_error_1.ApiError.forbidden('Dana Khusus berada di luar paroki Anda');
+            }
+            if (specialFund.status !== 'AKTIF') {
+                throw api_error_1.ApiError.badRequest('Dana Khusus tidak aktif dan tidak menerima donasi baru.');
+            }
+            const now = new Date();
+            if (now < specialFund.tanggalMulai || now > specialFund.tanggalSelesai) {
+                throw api_error_1.ApiError.badRequest('Dana Khusus sudah berakhir dan tidak menerima donasi baru.');
+            }
+            if (specialFund.fundCategoryId) {
+                fundCategoryId = specialFund.fundCategoryId;
+            }
+        }
         // 1. Verify Pos Dana
         const fund = await database_1.prisma.fundCategory.findUnique({
-            where: { id: input.fund_category_id },
+            where: { id: fundCategoryId },
+            include: { specialFund: true },
         });
         if (!fund) {
             throw api_error_1.ApiError.notFound('Pos Dana tidak ditemukan');
@@ -116,6 +153,10 @@ class CashTransactionService {
         }
         if (!fund.isActive) {
             throw api_error_1.ApiError.badRequest('Pos Dana tidak aktif');
+        }
+        // Prevent manual transactions from using dedicated Special Fund Pos Dana
+        if (fund.specialFund && fund.specialFund.id !== input.special_fund_id) {
+            throw api_error_1.ApiError.badRequest(`Pos Dana "${fund.name}" didekasikan untuk Dana Khusus dan hanya dapat diisi melalui transaksi Dana Khusus yang bersangkutan.`);
         }
         // 2. Verify Income Type
         const incType = await database_1.prisma.incomeType.findUnique({
@@ -129,6 +170,21 @@ class CashTransactionService {
         }
         if (!incType.isActive) {
             throw api_error_1.ApiError.badRequest('Jenis Penerimaan tidak aktif');
+        }
+        // Verify parent transaction if provided
+        if (input.parent_transaction_id) {
+            const parentTx = await database_1.prisma.cashTransaction.findUnique({
+                where: { id: input.parent_transaction_id },
+            });
+            if (!parentTx) {
+                throw api_error_1.ApiError.notFound('Transaksi induk tidak ditemukan');
+            }
+            if (parentTx.parokiId !== parokiId) {
+                throw api_error_1.ApiError.forbidden('Transaksi induk berada di luar paroki Anda');
+            }
+            if (parentTx.transactionType !== 'EXPENSE' || !parentTx.isUangMuka) {
+                throw api_error_1.ApiError.badRequest('Transaksi induk harus berupa pengeluaran uang muka');
+            }
         }
         // 3. Create Transaction in DB with auto transactionNo
         return await database_1.prisma.$transaction(async (tx) => {
@@ -149,23 +205,40 @@ class CashTransactionService {
             const yyyymmdd = todayStart.toISOString().slice(0, 10).replace(/-/g, '');
             const seq = String(countToday + 1).padStart(4, '0');
             const transactionNo = `TX-IN-${yyyymmdd}-${seq}`;
+            if (input.special_fund_id) {
+                await tx.specialFund.update({
+                    where: { id: input.special_fund_id },
+                    data: {
+                        balance: { increment: input.amount },
+                        income: { increment: input.amount },
+                    },
+                });
+            }
             const newTx = await tx.cashTransaction.create({
                 data: {
                     transactionNo,
                     transactionDate: input.transaction_date,
                     transactionType: 'INCOME',
-                    fundCategoryId: input.fund_category_id,
+                    fundCategoryId: fundCategoryId,
                     incomeTypeId: input.income_type_id,
                     amount: input.amount,
                     description: input.description,
                     createdById: userId,
                     parokiId,
+                    parentTransactionId: input.parent_transaction_id || null,
+                    specialFundId: input.special_fund_id || null,
                 },
                 include: {
                     fundCategory: true,
                     incomeType: true,
                 },
             });
+            if (input.parent_transaction_id) {
+                await tx.cashTransaction.update({
+                    where: { id: input.parent_transaction_id },
+                    data: { status: 'SELESAI' },
+                });
+            }
             // Log Audit Trail
             const formattedAmount = new Intl.NumberFormat('id-ID', {
                 style: 'currency',
@@ -188,9 +261,32 @@ class CashTransactionService {
      * Create cash expense (checking limits, handles upload)
      */
     static async createExpense(parokiId, userId, input, file) {
+        let fundCategoryId = input.fund_category_id;
+        // Verify Special Fund if provided
+        if (input.special_fund_id) {
+            const specialFund = await database_1.prisma.specialFund.findUnique({
+                where: { id: input.special_fund_id },
+            });
+            if (!specialFund) {
+                throw api_error_1.ApiError.notFound('Dana Khusus tidak ditemukan');
+            }
+            if (specialFund.parokiId !== parokiId) {
+                throw api_error_1.ApiError.forbidden('Dana Khusus berada di luar paroki Anda');
+            }
+            if (specialFund.status !== 'AKTIF') {
+                throw api_error_1.ApiError.badRequest('Dana Khusus tidak aktif.');
+            }
+            if (specialFund.fundCategoryId) {
+                fundCategoryId = specialFund.fundCategoryId;
+            }
+            if (Number(specialFund.balance) < input.amount) {
+                throw api_error_1.ApiError.badRequest(`Saldo Dana Khusus "${specialFund.name}" tidak mencukupi. Saldo tersedia: Rp ${Number(specialFund.balance).toLocaleString('id-ID')}, Dibutuhkan: Rp ${input.amount.toLocaleString('id-ID')}.`);
+            }
+        }
         // 1. Verify Pos Dana
         const fund = await database_1.prisma.fundCategory.findUnique({
-            where: { id: input.fund_category_id },
+            where: { id: fundCategoryId },
+            include: { specialFund: true },
         });
         if (!fund) {
             throw api_error_1.ApiError.notFound('Pos Dana tidak ditemukan');
@@ -200,6 +296,10 @@ class CashTransactionService {
         }
         if (!fund.isActive) {
             throw api_error_1.ApiError.badRequest('Pos Dana tidak aktif');
+        }
+        // Prevent manual transactions from using dedicated Special Fund Pos Dana
+        if (fund.specialFund && fund.specialFund.id !== input.special_fund_id) {
+            throw api_error_1.ApiError.badRequest(`Pos Dana "${fund.name}" didekasikan untuk Dana Khusus dan hanya dapat digunakan melalui transaksi Dana Khusus yang bersangkutan.`);
         }
         // 2. Verify Expense Type
         const expType = await database_1.prisma.expenseType.findUnique({
@@ -214,25 +314,110 @@ class CashTransactionService {
         if (!expType.isActive) {
             throw api_error_1.ApiError.badRequest('Jenis Pengeluaran tidak aktif');
         }
-        // 3. Check Balance limits
-        const balance = await this.getFundCategoryBalance(parokiId, input.fund_category_id);
-        if (input.amount > balance) {
-            throw api_error_1.ApiError.badRequest(`${fund.name} tidak mencukupi. Saldo tersedia Rp ${balance.toLocaleString('id-ID')} sedangkan pengeluaran Rp ${input.amount.toLocaleString('id-ID')}.`);
+        // 3. Verify Budget Item and its dynamic limit if budget_item_id is provided
+        // 2b. Verify Permohonan Anggaran if provided
+        let permohonanAnggaran = null;
+        if (input.permohonan_anggaran_id) {
+            permohonanAnggaran = await database_1.prisma.permohonanAnggaran.findUnique({
+                where: { id: input.permohonan_anggaran_id },
+                include: { kegiatan: { include: { komisi: true } } },
+            });
+            if (!permohonanAnggaran) {
+                throw api_error_1.ApiError.notFound('Permohonan Anggaran tidak ditemukan');
+            }
+            if (permohonanAnggaran.kegiatan.komisi.parokiId !== parokiId) {
+                throw api_error_1.ApiError.forbidden('Permohonan Anggaran berada di luar paroki Anda');
+            }
+            if (permohonanAnggaran.status !== 'DISETUJUI') {
+                throw api_error_1.ApiError.badRequest(`Permohonan Anggaran belum disetujui atau sudah diproses. Status: ${permohonanAnggaran.status}`);
+            }
+            if (input.amount > Number(permohonanAnggaran.jumlahDisetujui)) {
+                throw api_error_1.ApiError.badRequest(`Nominal pencairan melebihi nominal anggaran yang disetujui (Disetujui: Rp ${Number(permohonanAnggaran.jumlahDisetujui).toLocaleString('id-ID')})`);
+            }
         }
-        // 4. Create Transaction
+        // 3. Verify Budget Item and its dynamic limit if budget_item_id is provided
+        let budgetItem = null;
+        if (input.budget_item_id) {
+            budgetItem = await database_1.prisma.budgetItem.findUnique({
+                where: { id: input.budget_item_id },
+                include: { budget: true },
+            });
+            if (!budgetItem) {
+                throw api_error_1.ApiError.notFound('Item Anggaran tidak ditemukan');
+            }
+            if (budgetItem.budget.parokiId !== parokiId) {
+                throw api_error_1.ApiError.forbidden('Item Anggaran berada di luar paroki Anda');
+            }
+            if (budgetItem.budget.fundCategoryId !== input.fund_category_id) {
+                throw api_error_1.ApiError.badRequest('Item Anggaran tidak sesuai dengan Pos Dana transaksi');
+            }
+            const realAgg = await database_1.prisma.cashTransaction.aggregate({
+                where: {
+                    budgetItemId: input.budget_item_id,
+                    transactionType: 'EXPENSE',
+                },
+                _sum: { amount: true },
+            });
+            const currentRealisasi = Number(realAgg._sum.amount || 0);
+            const sisa = Number(budgetItem.plafon) - currentRealisasi;
+            if (input.amount > sisa) {
+                throw api_error_1.ApiError.badRequest(`Sisa plafon anggaran "${budgetItem.name}" tidak mencukupi. Sisa: Rp ${sisa.toLocaleString('id-ID')}, Dibutuhkan: Rp ${input.amount.toLocaleString('id-ID')}`);
+            }
+        }
+        // 4. Check Balance limits
+        if (!input.special_fund_id) {
+            const balance = await this.getFundCategoryBalance(parokiId, fundCategoryId);
+            if (input.amount > balance) {
+                throw api_error_1.ApiError.badRequest(`${fund.name} tidak mencukupi. Saldo tersedia Rp ${balance.toLocaleString('id-ID')} sedangkan pengeluaran Rp ${input.amount.toLocaleString('id-ID')}.`);
+            }
+        }
+        // 5. Create Transaction
         return await database_1.prisma.$transaction(async (tx) => {
-            // Re-verify balance inside transaction lock to avoid race conditions
-            const currentIncomes = await tx.cashTransaction.aggregate({
-                where: { parokiId, fundCategoryId: input.fund_category_id, transactionType: 'INCOME' },
-                _sum: { amount: true },
-            });
-            const currentExpenses = await tx.cashTransaction.aggregate({
-                where: { parokiId, fundCategoryId: input.fund_category_id, transactionType: 'EXPENSE' },
-                _sum: { amount: true },
-            });
-            const txBalance = Number(currentIncomes._sum.amount || 0) - Number(currentExpenses._sum.amount || 0);
-            if (input.amount > txBalance) {
-                throw api_error_1.ApiError.badRequest(`${fund.name} tidak mencukupi. Saldo tersedia Rp ${txBalance.toLocaleString('id-ID')} sedangkan pengeluaran Rp ${input.amount.toLocaleString('id-ID')}.`);
+            if (input.special_fund_id) {
+                // Re-verify and decrement Special Fund balance
+                const specialFund = await tx.specialFund.findUnique({
+                    where: { id: input.special_fund_id },
+                });
+                if (!specialFund || specialFund.status !== 'AKTIF' || Number(specialFund.balance) < input.amount) {
+                    throw api_error_1.ApiError.badRequest('Saldo Dana Khusus tidak mencukupi atau status tidak aktif');
+                }
+                await tx.specialFund.update({
+                    where: { id: input.special_fund_id },
+                    data: {
+                        balance: { decrement: input.amount },
+                        expense: { increment: input.amount },
+                    },
+                });
+            }
+            else {
+                // Re-verify balance inside transaction lock to avoid race conditions
+                const currentIncomes = await tx.cashTransaction.aggregate({
+                    where: { parokiId, fundCategoryId: fundCategoryId, transactionType: 'INCOME' },
+                    _sum: { amount: true },
+                });
+                const currentExpenses = await tx.cashTransaction.aggregate({
+                    where: { parokiId, fundCategoryId: fundCategoryId, transactionType: 'EXPENSE' },
+                    _sum: { amount: true },
+                });
+                const currentBalance = Number(currentIncomes._sum.amount || 0) - Number(currentExpenses._sum.amount || 0);
+                if (input.amount > currentBalance) {
+                    throw api_error_1.ApiError.badRequest(`Saldo ${fund.name} tidak mencukupi. Saldo terkini Rp ${currentBalance.toLocaleString('id-ID')} sedangkan pengeluaran Rp ${input.amount.toLocaleString('id-ID')}.`);
+                }
+            }
+            // Re-verify budget item limit inside transaction lock to avoid race conditions
+            if (input.budget_item_id && budgetItem) {
+                const realAggTx = await tx.cashTransaction.aggregate({
+                    where: {
+                        budgetItemId: input.budget_item_id,
+                        transactionType: 'EXPENSE',
+                    },
+                    _sum: { amount: true },
+                });
+                const currentRealisasiTx = Number(realAggTx._sum.amount || 0);
+                const sisaTx = Number(budgetItem.plafon) - currentRealisasiTx;
+                if (input.amount > sisaTx) {
+                    throw api_error_1.ApiError.badRequest(`Sisa plafon anggaran "${budgetItem.name}" tidak mencukupi. Sisa: Rp ${sisaTx.toLocaleString('id-ID')}, Dibutuhkan: Rp ${input.amount.toLocaleString('id-ID')}`);
+                }
             }
             // Handle file upload
             let attachmentId = undefined;
@@ -266,25 +451,42 @@ class CashTransactionService {
             const yyyymmdd = todayStart.toISOString().slice(0, 10).replace(/-/g, '');
             const seq = String(countToday + 1).padStart(4, '0');
             const transactionNo = `TX-OUT-${yyyymmdd}-${seq}`;
+            const isUangMuka = input.is_uang_muka || false;
+            const status = isUangMuka ? 'MENUNGGU_SPJ' : 'SELESAI';
             const newTx = await tx.cashTransaction.create({
                 data: {
                     transactionNo,
                     transactionDate: input.transaction_date,
                     transactionType: 'EXPENSE',
-                    fundCategoryId: input.fund_category_id,
+                    fundCategoryId: fundCategoryId,
                     expenseTypeId: input.expense_type_id,
+                    budgetItemId: input.budget_item_id || null,
+                    permohonanAnggaranId: input.permohonan_anggaran_id || null,
                     amount: input.amount,
                     description: input.description,
                     attachmentId: attachmentId || null,
                     createdById: userId,
                     parokiId,
+                    isUangMuka,
+                    status,
+                    specialFundId: input.special_fund_id || null,
                 },
                 include: {
                     fundCategory: true,
                     expenseType: true,
                     attachment: true,
+                    budgetItem: true,
+                    spj: true,
                 },
             });
+            // Update status of PermohonanAnggaran if linked
+            if (input.permohonan_anggaran_id) {
+                const nextStatus = isUangMuka ? 'DICAIRKAN' : 'SELESAI';
+                await tx.permohonanAnggaran.update({
+                    where: { id: input.permohonan_anggaran_id },
+                    data: { status: nextStatus },
+                });
+            }
             // Log Audit Trail
             const formattedAmount = new Intl.NumberFormat('id-ID', {
                 style: 'currency',
@@ -318,6 +520,17 @@ class CashTransactionService {
                 incomeType: true,
                 expenseType: true,
                 attachment: true,
+                spj: {
+                    include: {
+                        lampiran: {
+                            include: {
+                                attachment: true,
+                            },
+                        },
+                    },
+                },
+                parentTransaction: true,
+                childTransactions: true,
             },
         });
         if (!transaction) {

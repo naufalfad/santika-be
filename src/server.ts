@@ -6,15 +6,18 @@ import './config/database'; // Initializes and tests DB connection
 import { errorHandler } from './common/middleware/error.middleware';
 import authRouter from './modules/auth/auth.routes';
 import usersRouter from './modules/users/users.routes';
-import kasMasukRouter from './modules/kas-masuk/kas-masuk.routes';
-import kasKeluarRouter from './modules/kas-keluar/kas-keluar.routes';
 import anggaranRouter from './modules/anggaran/anggaran.routes';
-import approvalRouter from './modules/approval/approval.routes';
 import profileRouter from './modules/profile/profile.routes';
+import kegiatanRouter from './modules/kegiatan/kegiatan.routes';
+import permohonanAnggaranRouter from './modules/permohonan-anggaran/permohonan-anggaran.routes';
 import fundCategoryRouter from './modules/fund-category/fund-category.routes';
 import incomeTypeRouter from './modules/income-type/income-type.routes';
 import expenseTypeRouter from './modules/expense-type/expense-type.routes';
 import cashTransactionRouter from './modules/cash-transaction/cash-transaction.routes';
+import spjRouter from './modules/spj/spj.routes';
+import specialFundRouter from './modules/special-fund/special-fund.routes';
+import reportRouter from './modules/report/report.routes';
+import { initSpecialFundScheduler } from './modules/special-fund/special-fund.cron';
 import path from 'path';
 
 const app = express();
@@ -33,15 +36,17 @@ app.use(express.urlencoded({ extended: true }));
 // API Routes
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/users', usersRouter);
-app.use('/api/v1/kas/masuk', kasMasukRouter);
-app.use('/api/v1/kas/keluar', kasKeluarRouter);
 app.use('/api/v1/anggaran', anggaranRouter);
-app.use('/api/v1/approvals', approvalRouter);
+app.use('/api/v1/kegiatan', kegiatanRouter);
+app.use('/api/v1/permohonan-anggaran', permohonanAnggaranRouter);
 app.use('/api/v1/profile', profileRouter);
 app.use('/api/v1/fund-categories', fundCategoryRouter);
 app.use('/api/v1/income-types', incomeTypeRouter);
 app.use('/api/v1/expense-types', expenseTypeRouter);
 app.use('/api/v1/cash', cashTransactionRouter);
+app.use('/api/v1/spj', spjRouter);
+app.use('/api/v1/special-funds', specialFundRouter);
+app.use('/api/v1/reports', reportRouter);
 
 // Health Check Route
 app.get('/health', (req, res) => {
@@ -58,5 +63,7 @@ app.use(errorHandler);
 
 app.listen(env.PORT, () => {
   console.log(`🚀 Server is listening on port ${env.PORT} in ${env.NODE_ENV} mode.`);
+  // Start the Special Fund clean-up job scheduler
+  initSpecialFundScheduler();
 });
 

@@ -24,14 +24,23 @@ const storage = multer_1.default.diskStorage({
         cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
     },
 });
-// File Type Filters (Only allow PDF and Common Images)
+// File Type Filters (Only allow PDF, Word, Excel, and Common Images)
 const fileFilter = (req, file, cb) => {
-    const allowedMimeTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+    const allowedMimeTypes = [
+        'application/pdf',
+        'image/jpeg',
+        'image/jpg',
+        'image/png',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/msword',
+        'application/vnd.ms-excel'
+    ];
     if (allowedMimeTypes.includes(file.mimetype)) {
         cb(null, true);
     }
     else {
-        cb(new api_error_1.ApiError(400, 'Invalid file type. Only PDF and JPG/JPEG/PNG images are allowed.'));
+        cb(new api_error_1.ApiError(400, 'Invalid file type. Only PDF, DOCX, XLSX and JPG/JPEG/PNG are allowed.'));
     }
 };
 // Multer Instance

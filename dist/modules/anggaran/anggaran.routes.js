@@ -10,7 +10,10 @@ const client_1 = require("@prisma/client");
 const router = (0, express_1.Router)();
 // Apply auth middleware globally to all Anggaran routes
 router.use(auth_middleware_1.authenticate);
-// Routes with specific RBAC guards and validators
+// Budget Dashboard
+router.get('/dashboard', (0, rbac_guard_1.authorize)(client_1.Role.BENDAHARA, client_1.Role.PASTOR, client_1.Role.DEWAN_KEUANGAN), anggaran_controller_1.AnggaranController.getAnggaranDashboard);
+router.get('/komisi', (0, rbac_guard_1.authorize)(client_1.Role.BENDAHARA, client_1.Role.PASTOR, client_1.Role.DEWAN_KEUANGAN, client_1.Role.KETUA_KOMISI), anggaran_controller_1.AnggaranController.getKomisi);
+// CRUD routes
 router.get('/', (0, rbac_guard_1.authorize)(client_1.Role.BENDAHARA, client_1.Role.PASTOR, client_1.Role.DEWAN_KEUANGAN), (0, validation_middleware_1.validateRequest)(anggaran_schema_1.getAnggaranQuerySchema), anggaran_controller_1.AnggaranController.getAnggaran);
 router.post('/', (0, rbac_guard_1.authorize)(client_1.Role.BENDAHARA), (0, validation_middleware_1.validateRequest)(anggaran_schema_1.createAnggaranSchema), anggaran_controller_1.AnggaranController.createAnggaran);
 router.put('/:id', (0, rbac_guard_1.authorize)(client_1.Role.BENDAHARA), (0, validation_middleware_1.validateRequest)(anggaran_schema_1.updateAnggaranSchema), anggaran_controller_1.AnggaranController.updateAnggaran);

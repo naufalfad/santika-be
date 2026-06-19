@@ -1,9 +1,11 @@
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 enum Role {
@@ -16,13 +18,54 @@ enum Role {
   SEKRETARIAT
 }
 
-enum ApprovalStatus {
+enum KategoriKegiatan {
+  OMK
+  LITURGI
+  SOSIAL
+  PENDIDIKAN
+  PASTORAL
+  LINGKUNGAN
+  PEMELIHARAAN
+  OPERASIONAL
+  LAINNYA
+}
+
+enum PrioritasKegiatan {
+  RENDAH
+  SEDANG
+  TINGGI
+  DARURAT
+}
+
+enum StatusKegiatan {
   DRAFT
-  MENUNGGU_VERIFIKASI
+  DIAJUKAN
+  DIREVIEW
+  DISETUJUI
+  DITOLAK
+  SELESAI
+}
+
+enum JenisDokumenKegiatan {
+  PROPOSAL
+  SURAT_PERMOHONAN
+  RAB
+  JADWAL_ACARA
+  SURAT_TUGAS
+  NOTULENSI
+  FOTO_PENDUKUNG
+  LAINNYA
+}
+
+enum StatusPermohonanAnggaran {
+  DRAFT
+  DIAJUKAN
+  DIREVIEW_BENDAHARA
   MENUNGGU_PERSETUJUAN
   DISETUJUI
   DITOLAK
-  REVISI
+  DICAIRKAN
+  SELESAI
 }
 
 enum SpjStatus {
@@ -46,10 +89,8 @@ model Paroki {
   
   users        User[]
   komisi       Komisi[]
-  anggaran     Anggaran[]
-  danaKhusus   DanaKhusus[]
-  kasMasuk     KasMasuk[]
-  kasKeluar    KasKeluar[]
+  budgets      Budget[]
+  specialFunds SpecialFund[]
   auditLogs    AuditLog[]
 
   fundCategories   FundCategory[]
@@ -74,10 +115,14 @@ model User {
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 
-  pengajuan        Pengajuan[]
-  approvals        ApprovalHistory[]
-  auditLogs        AuditLog[]
+  pengajuanKegiatan   PengajuanKegiatan[]
+  permohonanAnggaran  PermohonanAnggaran[]  @relation("PemohonAnggaran")
+  reviewedAnggaran    PermohonanAnggaran[]  @relation("ReviewerAnggaran")
+  approvedAnggaran    PermohonanAnggaran[]  @relation("ApproverAnggaran")
+  approvals           ApprovalHistory[]
+  auditLogs           AuditLog[]
   createdTransactions CashTransaction[] @relation("CreatedTransactions")
+  specialFundAllocations SpecialFundAllocation[]
 }
 
 model Komisi {
@@ -87,125 +132,192 @@ model Komisi {
   paroki       Paroki        @relation(fields: [parokiId], references: [id])
   createdAt    DateTime      @default(now())
   
-  anggaran     Anggaran[]
-  pengajuan    Pengajuan[]
+  budgetItems  BudgetItem[]
+  kegiatan     PengajuanKegiatan[]
 }
 
-model Anggaran {
-  id           String        @id @default(uuid())
-  tahun        Int
-  plafon       Decimal       @db.Decimal(15, 2)
-  terpakai     Decimal       @default(0) @db.Decimal(15, 2)
-  sisa         Decimal       @db.Decimal(15, 2)
-  kategori     String        // e.g. "Liturgi", "PSE", "Operasional"
-  komisiId     String
-  komisi       Komisi        @relation(fields: [komisiId], references: [id])
-  parokiId     String
-  paroki       Paroki        @relation(fields: [parokiId], references: [id])
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-
-  pengajuan    Pengajuan[]
-  kasKeluar    KasKeluar[]
-}
-
-model DanaKhusus {
-  id             String             @id @default(uuid())
-  namaDana       String
-  target         Decimal            @db.Decimal(15, 2)
-  terkumpul      Decimal            @default(0) @db.Decimal(15, 2)
-  terpakai       Decimal            @default(0) @db.Decimal(15, 2)
-  status         String             @default("AKTIF")
+model Budget {
+  id             String        @id @default(uuid())
+  tahun          Int
+  fundCategoryId String
+  fundCategory   FundCategory  @relation(fields: [fundCategoryId], references: [id])
   parokiId       String
-  paroki         Paroki             @relation(fields: [parokiId], references: [id])
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  paroki         Paroki        @relation(fields: [parokiId], references: [id])
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  items          BudgetItem[]
 
-  mutasiDana     MutasiDanaKhusus[]
+  @@unique([parokiId, fundCategoryId, tahun])
 }
 
-model MutasiDanaKhusus {
-  id             String     @id @default(uuid())
-  tanggal        DateTime
-  namaDonatur    String     // jika pemasukan (donasi)
-  penerima       String?    // jika pengeluaran dana pembangunan
-  jumlah         Decimal    @db.Decimal(15, 2)
-  jenis          String     // "IN" (donasi) | "OUT" (belanja pembangunan)
-  metode         String     // "TRANSFER" | "TUNAI"
-  danaKhususId   String
-  danaKhusus     DanaKhusus @relation(fields: [danaKhususId], references: [id])
-  createdAt      DateTime   @default(now())
+model BudgetItem {
+  id           String            @id @default(uuid())
+  budgetId     String
+  budget       Budget            @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  name         String
+  plafon       Decimal           @db.Decimal(15, 2)
+  komisiId     String?
+  komisi       Komisi?           @relation(fields: [komisiId], references: [id])
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  
+  cashTransactions CashTransaction[]
 }
 
-model KasMasuk {
-  id           String        @id @default(uuid())
-  tanggal      DateTime
-  kategori     String        // "Kolekte" | "Donasi" | "Persembahan" | "Pembangunan" | "Lainnya"
-  sumber       String        // e.g. "Misa Minggu Pagi"
-  jumlah       Decimal       @db.Decimal(15, 2)
-  keterangan   String?
-  status       String        @default("Selesai")
-  parokiId     String
-  paroki       Paroki        @relation(fields: [parokiId], references: [id])
-  createdAt    DateTime      @default(now())
+enum SpecialFundStatus {
+  DRAFT
+  AKTIF
+  DITUTUP
 }
 
-model KasKeluar {
-  id           String        @id @default(uuid())
-  tanggal      DateTime
-  kategori     String        // e.g. "Liturgi", "Operasional"
-  penerima     String        // e.g. Toko Buku ABC
-  jumlah       Decimal       @db.Decimal(15, 2)
-  status       String        @default("Selesai")
-  anggaranId   String?
-  anggaran     Anggaran?     @relation(fields: [anggaranId], references: [id])
-  attachmentId String?       @unique
-  attachment   Attachment?   @relation(fields: [attachmentId], references: [id])
-  parokiId     String
-  paroki       Paroki        @relation(fields: [parokiId], references: [id])
-  createdAt    DateTime      @default(now())
+model SpecialFund {
+  id                 String                  @id @default(uuid())
+  code               String                  // e.g. "SF-001"
+  name               String
+  description        String?
+  tujuanPenggalangan String?
+  targetNominal      Decimal?                @db.Decimal(15, 2)
+  balance            Decimal                 @default(0) @db.Decimal(15, 2)
+  income             Decimal                 @default(0) @db.Decimal(15, 2)
+  expense            Decimal                 @default(0) @db.Decimal(15, 2)
+  tanggalMulai       DateTime
+  tanggalSelesai     DateTime
+  status             SpecialFundStatus       @default(DRAFT)
+  parokiId           String
+  paroki             Paroki                  @relation(fields: [parokiId], references: [id])
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  transactions       CashTransaction[]
+  allocations        SpecialFundAllocation[]
+  fundCategoryId     String?                 @unique
+  fundCategory       FundCategory?           @relation(fields: [fundCategoryId], references: [id])
+
+  @@unique([parokiId, code])
 }
 
-model Pengajuan {
-  id                String          @id @default(uuid())
-  judul             String
-  nominal           Decimal         @db.Decimal(15, 2)
-  tujuan            String
-  status            ApprovalStatus  @default(MENUNGGU_VERIFIKASI)
+model SpecialFundAllocation {
+  id              String       @id @default(uuid())
+  specialFundId   String
+  specialFund     SpecialFund  @relation(fields: [specialFundId], references: [id], onDelete: Cascade)
+  targetPosDanaId String
+  targetPosDana   FundCategory @relation(fields: [targetPosDanaId], references: [id])
+  nominal         Decimal      @db.Decimal(15, 2)
+  tanggal         DateTime     @default(now())
+  keterangan      String?
+  createdById     String
+  createdBy       User         @relation(fields: [createdById], references: [id])
+  createdAt       DateTime     @default(now())
+}
+
+model PengajuanKegiatan {
+  id                String            @id @default(uuid())
+  nomorKegiatan     String            @unique
+  namaKegiatan      String
+  deskripsiKegiatan String
+  tujuanKegiatan    String
+  kategoriKegiatan  KategoriKegiatan
   komisiId          String
-  komisi            Komisi          @relation(fields: [komisiId], references: [id])
-  anggaranId        String
-  anggaran          Anggaran        @relation(fields: [anggaranId], references: [id])
+  komisi            Komisi            @relation(fields: [komisiId], references: [id])
   pemohonId         String
-  pemohon           User            @relation(fields: [pemohonId], references: [id])
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  pemohon           User              @relation(fields: [pemohonId], references: [id])
+  lokasi            String
+  tanggalMulai      DateTime
+  tanggalSelesai    DateTime
+  jumlahPeserta     Int
+  prioritas         PrioritasKegiatan
+  status            StatusKegiatan    @default(DRAFT)
+  catatanReview     String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
-  alur              ApprovalHistory[]
+  dokumen           KegiatanDokumen[]
+  anggaran          PermohonanAnggaran[]
+  approvals         ApprovalHistory[]
   spj               Spj[]
 }
 
+model KegiatanDokumen {
+  id           String               @id @default(uuid())
+  kegiatanId   String
+  kegiatan     PengajuanKegiatan    @relation(fields: [kegiatanId], references: [id], onDelete: Cascade)
+  namaDokumen  String
+  jenisDokumen JenisDokumenKegiatan
+  pathFile     String
+  ukuranFile   Int
+  uploadedBy   String
+  uploadedAt   DateTime             @default(now())
+}
+
+model PermohonanAnggaran {
+  id                String                   @id @default(uuid())
+  nomorPermohonan   String                   @unique
+  kegiatanId        String
+  kegiatan          PengajuanKegiatan        @relation(fields: [kegiatanId], references: [id], onDelete: Cascade)
+  pemohonId         String
+  pemohon           User                     @relation("PemohonAnggaran", fields: [pemohonId], references: [id])
+  tanggalPermohonan DateTime
+  estimasiBiaya     Decimal                  @db.Decimal(15, 2)
+  jumlahDiajukan    Decimal                  @db.Decimal(15, 2)
+  jumlahDisetujui   Decimal                  @default(0) @db.Decimal(15, 2)
+  posDanaId         String?
+  posDana           FundCategory?            @relation(fields: [posDanaId], references: [id])
+  reviewedById      String?
+  reviewedBy        User?                    @relation("ReviewerAnggaran", fields: [reviewedById], references: [id])
+  approvedById      String?
+  approvedBy        User?                    @relation("ApproverAnggaran", fields: [approvedById], references: [id])
+  catatanReview     String?
+  status            StatusPermohonanAnggaran @default(DRAFT)
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  details           PermohonanAnggaranDetail[]
+  cashTransactions  CashTransaction[]
+  spj               Spj[]
+  approvals         ApprovalHistory[]
+}
+
+model PermohonanAnggaranDetail {
+  id           String             @id @default(uuid())
+  permohonanId String
+  permohonan   PermohonanAnggaran @relation(fields: [permohonanId], references: [id], onDelete: Cascade)
+  uraian       String
+  qty          Int
+  satuan       String
+  hargaSatuan  Decimal            @db.Decimal(15, 2)
+  subtotal     Decimal            @db.Decimal(15, 2)
+  keterangan   String?
+}
+
 model ApprovalHistory {
-  id           String          @id @default(uuid())
-  step         String          // e.g. "Verifikasi Bendahara", "Persetujuan Pastor"
-  action       String          // "SUBMIT" | "APPROVE" | "REJECT" | "REVISE"
-  catatan      String?
-  tanggal      DateTime        @default(now())
-  picId        String
-  pic          User            @relation(fields: [picId], references: [id])
-  pengajuanId  String
-  pengajuan    Pengajuan       @relation(fields: [pengajuanId], references: [id])
+  id                    String              @id @default(uuid())
+  step                  String              // e.g. "Review Kegiatan", "Review Anggaran", "Persetujuan Pastor"
+  action                String              // "SUBMIT" | "APPROVE" | "REJECT" | "REVISE"
+  catatan               String?
+  tanggal               DateTime            @default(now())
+  picId                 String
+  pic                   User                @relation(fields: [picId], references: [id])
+  kegiatanId            String?
+  kegiatan              PengajuanKegiatan?  @relation(fields: [kegiatanId], references: [id])
+  permohonanAnggaranId  String?
+  permohonanAnggaran    PermohonanAnggaran? @relation(fields: [permohonanAnggaranId], references: [id])
 }
 
 model Spj {
-  id                String        @id @default(uuid())
+  id                String              @id @default(uuid())
   title             String
-  amount            Decimal       @db.Decimal(15, 2)
-  status            SpjStatus     @default(PENDING)
+  amount            Decimal             @db.Decimal(15, 2)
+  status            SpjStatus           @default(PENDING)
   uploadedBy        String
-  pengajuanId       String
-  pengajuan         Pengajuan     @relation(fields: [pengajuanId], references: [id])
-  createdAt         DateTime      @default(now())
+  kegiatanId        String?
+  kegiatan          PengajuanKegiatan?  @relation(fields: [kegiatanId], references: [id])
+  permohonanAnggaranId String?
+  permohonanAnggaran PermohonanAnggaran? @relation(fields: [permohonanAnggaranId], references: [id])
+  posDanaId         String?
+  posDana           FundCategory?       @relation(fields: [posDanaId], references: [id])
+  cashTransactionId String?             @unique
+  cashTransaction   CashTransaction?    @relation(fields: [cashTransactionId], references: [id])
+  createdAt         DateTime            @default(now())
 
   lampiran          SpjLampiran[]
 }
@@ -227,7 +339,6 @@ model Attachment {
   fileSize     Int
   createdAt    DateTime      @default(now())
 
-  kasKeluar    KasKeluar?
   spjLampiran  SpjLampiran?
   cashTransaction CashTransaction?
 }
@@ -243,6 +354,11 @@ model FundCategory {
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
   transactions CashTransaction[]
+  budgets      Budget[]
+  permohonan   PermohonanAnggaran[]
+  spj          Spj[]
+  specialFundAllocations SpecialFundAllocation[]
+  specialFund            SpecialFund?
 
   @@unique([parokiId, code])
   @@unique([parokiId, name])
@@ -295,12 +411,27 @@ model CashTransaction {
   description     String
   attachmentId    String?       @unique
   attachment      Attachment?   @relation(fields: [attachmentId], references: [id])
+  budgetItemId    String?
+  budgetItem      BudgetItem?   @relation(fields: [budgetItemId], references: [id])
   createdById     String
   createdBy       User          @relation("CreatedTransactions", fields: [createdById], references: [id])
   parokiId        String
   paroki          Paroki        @relation(fields: [parokiId], references: [id])
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
+
+  isUangMuka      Boolean       @default(false)
+  status          String        @default("SELESAI") // "SELESAI" | "MENUNGGU_SPJ"
+  
+  parentTransactionId String?
+  parentTransaction   CashTransaction?   @relation("TransactionHierarchy", fields: [parentTransactionId], references: [id])
+  childTransactions   CashTransaction[]  @relation("TransactionHierarchy")
+  
+  spj             Spj?
+  permohonanAnggaranId String?
+  permohonanAnggaran   PermohonanAnggaran? @relation(fields: [permohonanAnggaranId], references: [id])
+  specialFundId   String?
+  specialFund     SpecialFund?  @relation(fields: [specialFundId], references: [id])
 
   @@unique([parokiId, transactionNo])
 }
@@ -315,4 +446,6 @@ model AuditLog {
   actor        User          @relation(fields: [actorId], references: [id])
   parokiId     String
   paroki       Paroki        @relation(fields: [parokiId], references: [id])
+  oldData      Json?
+  newData      Json?
 }

@@ -8,7 +8,7 @@ exports.createPengajuanSchema = zod_1.z.object({
         judul: zod_1.z.string().min(3, 'Judul must be at least 3 characters'),
         nominal: zod_1.z.number({ message: 'Nominal is required' }).min(1000, 'Nominal must be at least 1,000'),
         tujuan: zod_1.z.string().min(5, 'Tujuan must be at least 5 characters'),
-        anggaranId: zod_1.z.string().uuid('Invalid Anggaran ID format'),
+        budgetItemId: zod_1.z.string().uuid('Invalid BudgetItem ID format'),
     }),
 });
 exports.updateApprovalStatusSchema = zod_1.z.object({

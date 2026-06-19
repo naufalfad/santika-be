@@ -75,5 +75,26 @@ class FundCategoryController {
             next(error);
         }
     }
+    static async transferBalance(req, res, next) {
+        try {
+            const parokiId = req.user.parokiId;
+            const userId = req.user.id;
+            const { source_fund_category_id, target_fund_category_id, amount, description } = req.body;
+            const result = await fund_category_service_1.FundCategoryService.transferBalance(parokiId, userId, {
+                sourceFundCategoryId: source_fund_category_id,
+                targetFundCategoryId: target_fund_category_id,
+                amount,
+                description,
+            });
+            res.status(200).json({
+                status: 'success',
+                message: 'Pemindahan saldo Pos Dana berhasil dilakukan',
+                data: result,
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
 }
 exports.FundCategoryController = FundCategoryController;

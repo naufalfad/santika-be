@@ -15,7 +15,20 @@ const router = Router();
 // Apply auth middleware globally to all Anggaran routes
 router.use(authenticate);
 
-// Routes with specific RBAC guards and validators
+// Budget Dashboard
+router.get(
+  '/dashboard',
+  authorize(Role.BENDAHARA, Role.PASTOR, Role.DEWAN_KEUANGAN),
+  AnggaranController.getAnggaranDashboard
+);
+
+router.get(
+  '/komisi',
+  authorize(Role.BENDAHARA, Role.PASTOR, Role.DEWAN_KEUANGAN, Role.KETUA_KOMISI),
+  AnggaranController.getKomisi
+);
+
+// CRUD routes
 router.get(
   '/',
   authorize(Role.BENDAHARA, Role.PASTOR, Role.DEWAN_KEUANGAN),

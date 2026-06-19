@@ -21,13 +21,22 @@ const storage = multer.diskStorage({
   },
 });
 
-// File Type Filters (Only allow PDF and Common Images)
+// File Type Filters (Only allow PDF, Word, Excel, and Common Images)
 const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  const allowedMimeTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+  const allowedMimeTypes = [
+    'application/pdf',
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/msword',
+    'application/vnd.ms-excel'
+  ];
   if (allowedMimeTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new ApiError(400, 'Invalid file type. Only PDF and JPG/JPEG/PNG images are allowed.'));
+    cb(new ApiError(400, 'Invalid file type. Only PDF, DOCX, XLSX and JPG/JPEG/PNG are allowed.'));
   }
 };
 

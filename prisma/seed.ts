@@ -17,16 +17,18 @@ async function main() {
   await prisma.approvalHistory.deleteMany({});
   await prisma.spjLampiran.deleteMany({});
   await prisma.spj.deleteMany({});
-  await prisma.pengajuan.deleteMany({});
-  await prisma.kasKeluar.deleteMany({});
-  await prisma.kasMasuk.deleteMany({});
+  await prisma.permohonanAnggaranDetail.deleteMany({});
+  await prisma.permohonanAnggaran.deleteMany({});
+  await prisma.kegiatanDokumen.deleteMany({});
+  await prisma.pengajuanKegiatan.deleteMany({});
   await prisma.cashTransaction.deleteMany({});
+  await prisma.specialFundAllocation.deleteMany({});
+  await prisma.specialFund.deleteMany({});
+  await prisma.budgetItem.deleteMany({});
+  await prisma.budget.deleteMany({});
   await prisma.fundCategory.deleteMany({});
   await prisma.incomeType.deleteMany({});
   await prisma.expenseType.deleteMany({});
-  await prisma.mutasiDanaKhusus.deleteMany({});
-  await prisma.danaKhusus.deleteMany({});
-  await prisma.anggaran.deleteMany({});
   await prisma.komisi.deleteMany({});
   await prisma.user.deleteMany({});
   await prisma.paroki.deleteMany({});
@@ -155,35 +157,230 @@ async function main() {
     },
   });
 
+  const komisiOMK = await prisma.komisi.create({
+    data: {
+      nama: 'Komisi Kepemudaan (OMK)',
+      parokiId: paroki.id,
+    },
+  });
+
+  const komisiKateketik = await prisma.komisi.create({
+    data: {
+      nama: 'Komisi Kateketik (Pendidikan Iman)',
+      parokiId: paroki.id,
+    },
+  });
+
+  const komisiSarpras = await prisma.komisi.create({
+    data: {
+      nama: 'Bagian Sarana Prasarana (Pemeliharaan)',
+      parokiId: paroki.id,
+    },
+  });
+
   console.log('📋 Created default Komisi records.');
 
-  // 4. Create default Anggaran
+  // 4. Create default Budget & Budget Items
   const tahunAnggaran = new Date().getFullYear();
-  await prisma.anggaran.create({
+  
+  const dbFunds = await prisma.fundCategory.findMany({
+    where: { parokiId: paroki.id },
+  });
+
+  const operasionalFund = dbFunds.find((f) => f.code === 'OPERASIONAL')!;
+  const liturgiFund = dbFunds.find((f) => f.code === 'LITURGI')!;
+  const pseFund = dbFunds.find((f) => f.code === 'PSE')!;
+  const omkFund = dbFunds.find((f) => f.code === 'OMK')!;
+  const pemeliharaanFund = dbFunds.find((f) => f.code === 'PEMELIHARAAN_ASET')!;
+  const pendidikanFund = dbFunds.find((f) => f.code === 'PENDIDIKAN')!;
+
+  // Budget for Liturgi
+  const budgetLiturgi = await prisma.budget.create({
     data: {
       tahun: tahunAnggaran,
-      plafon: 50000000.00, // 50 Million
-      terpakai: 0.00,
-      sisa: 50000000.00,
-      kategori: 'Liturgi',
+      fundCategoryId: liturgiFund.id,
+      parokiId: paroki.id,
+    },
+  });
+
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetLiturgi.id,
+      name: 'Perlengkapan Liturgi & Sakramen',
+      plafon: 40000000.00,
       komisiId: komisiLiturgi.id,
-      parokiId: paroki.id,
     },
   });
 
-  await prisma.anggaran.create({
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetLiturgi.id,
+      name: 'Hias Altar Misa',
+      plafon: 30000000.00,
+      komisiId: komisiLiturgi.id,
+    },
+  });
+
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetLiturgi.id,
+      name: 'Pembinaan Lektor & Misdinar',
+      plafon: 15000000.00,
+      komisiId: komisiLiturgi.id,
+    },
+  });
+
+  // Budget for PSE
+  const budgetPSE = await prisma.budget.create({
     data: {
       tahun: tahunAnggaran,
-      plafon: 75000000.00, // 75 Million
-      terpakai: 0.00,
-      sisa: 75000000.00,
-      kategori: 'Sosial',
-      komisiId: komisiPSE.id,
+      fundCategoryId: pseFund.id,
       parokiId: paroki.id,
     },
   });
 
-  console.log('💰 Created initial Anggaran limits.');
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetPSE.id,
+      name: 'Bantuan Sembako Umat',
+      plafon: 50000000.00,
+      komisiId: komisiPSE.id,
+    },
+  });
+
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetPSE.id,
+      name: 'Beasiswa Anak Sekolah',
+      plafon: 45000000.00,
+      komisiId: komisiPSE.id,
+    },
+  });
+
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetPSE.id,
+      name: 'Bantuan Kesehatan Umat',
+      plafon: 35000000.00,
+      komisiId: komisiPSE.id,
+    },
+  });
+
+  // Budget for OMK
+  const budgetOMK = await prisma.budget.create({
+    data: {
+      tahun: tahunAnggaran,
+      fundCategoryId: omkFund.id,
+      parokiId: paroki.id,
+    },
+  });
+
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetOMK.id,
+      name: 'Kegiatan Paskah & Natal OMK',
+      plafon: 20000000.00,
+      komisiId: komisiOMK.id,
+    },
+  });
+
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetOMK.id,
+      name: 'Retret & Pembinaan Iman OMK',
+      plafon: 25000000.00,
+      komisiId: komisiOMK.id,
+    },
+  });
+
+  // Budget for Operasional
+  const budgetOperasional = await prisma.budget.create({
+    data: {
+      tahun: tahunAnggaran,
+      fundCategoryId: operasionalFund.id,
+      parokiId: paroki.id,
+    },
+  });
+
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetOperasional.id,
+      name: 'Gaji Karyawan & Koster',
+      plafon: 60000000.00,
+    },
+  });
+
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetOperasional.id,
+      name: 'Listrik, Air & Internet',
+      plafon: 36000000.00,
+    },
+  });
+
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetOperasional.id,
+      name: 'ATK & Rumah Tangga Pastoran',
+      plafon: 24000000.00,
+    },
+  });
+
+  // Budget for Pemeliharaan Aset
+  const budgetPemeliharaan = await prisma.budget.create({
+    data: {
+      tahun: tahunAnggaran,
+      fundCategoryId: pemeliharaanFund.id,
+      parokiId: paroki.id,
+    },
+  });
+
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetPemeliharaan.id,
+      name: 'Pemeliharaan Gedung Gereja',
+      plafon: 80000000.00,
+      komisiId: komisiSarpras.id,
+    },
+  });
+
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetPemeliharaan.id,
+      name: 'Perawatan AC & Sound System',
+      plafon: 30000000.00,
+      komisiId: komisiSarpras.id,
+    },
+  });
+
+  // Budget for Pendidikan
+  const budgetPendidikan = await prisma.budget.create({
+    data: {
+      tahun: tahunAnggaran,
+      fundCategoryId: pendidikanFund.id,
+      parokiId: paroki.id,
+    },
+  });
+
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetPendidikan.id,
+      name: 'Pembinaan BIA & BIR',
+      plafon: 15000000.00,
+      komisiId: komisiKateketik.id,
+    },
+  });
+
+  await prisma.budgetItem.create({
+    data: {
+      budgetId: budgetPendidikan.id,
+      name: 'Persiapan Komuni Pertama',
+      plafon: 12000000.00,
+      komisiId: komisiKateketik.id,
+    },
+  });
+
+  console.log('💰 Created initial Budget limits.');
 
   // 5. Hash password for users
   const hashedPassword = await bcrypt.hash('password123', 10);
