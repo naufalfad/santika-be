@@ -1,9 +1,11 @@
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
   provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 enum Role {
@@ -120,6 +122,7 @@ model User {
   approvals           ApprovalHistory[]
   auditLogs           AuditLog[]
   createdTransactions CashTransaction[] @relation("CreatedTransactions")
+  auditedTransactions CashTransaction[] @relation("AuditedTransactions")
   specialFundAllocations SpecialFundAllocation[]
 }
 
@@ -430,6 +433,12 @@ model CashTransaction {
   permohonanAnggaran   PermohonanAnggaran? @relation(fields: [permohonanAnggaranId], references: [id])
   specialFundId   String?
   specialFund     SpecialFund?  @relation(fields: [specialFundId], references: [id])
+
+  auditStatus     String        @default("BELUM_DIAUDIT")
+  auditNotes      String?       @db.Text
+  auditedById     String?
+  auditedBy       User?         @relation("AuditedTransactions", fields: [auditedById], references: [id])
+  auditedAt       DateTime?
 
   @@unique([parokiId, transactionNo])
 }

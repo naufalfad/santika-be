@@ -18,4 +18,6 @@ router.post('/incomes', (0, rbac_guard_1.authorize)(client_1.Role.BENDAHARA, cli
 router.get('/expenses', (0, rbac_guard_1.authorize)(client_1.Role.BENDAHARA, client_1.Role.PASTOR, client_1.Role.DEWAN_KEUANGAN, client_1.Role.KETUA_KOMISI), (0, validation_middleware_1.validateRequest)(cash_transaction_schema_1.getCashTransactionsQuerySchema), cash_transaction_controller_1.CashTransactionController.getExpenses);
 router.get('/expenses/:id', (0, rbac_guard_1.authorize)(client_1.Role.BENDAHARA, client_1.Role.PASTOR, client_1.Role.DEWAN_KEUANGAN, client_1.Role.KETUA_KOMISI), cash_transaction_controller_1.CashTransactionController.getExpenseById);
 router.post('/expenses', (0, rbac_guard_1.authorize)(client_1.Role.BENDAHARA, client_1.Role.KETUA_KOMISI), upload_middleware_1.multerUpload.single('file'), (0, validation_middleware_1.validateRequest)(cash_transaction_schema_1.createExpenseSchema), cash_transaction_controller_1.CashTransactionController.createExpense);
+// --- AUDIT ---
+router.put('/transactions/:id/audit', (0, rbac_guard_1.authorize)(client_1.Role.BENDAHARA, client_1.Role.PASTOR, client_1.Role.SUPER_ADMIN), (0, validation_middleware_1.validateRequest)(cash_transaction_schema_1.auditTransactionSchema), cash_transaction_controller_1.CashTransactionController.auditTransaction);
 exports.default = router;

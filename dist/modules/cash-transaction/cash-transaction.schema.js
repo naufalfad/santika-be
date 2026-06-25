@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getCashTransactionsQuerySchema = exports.createExpenseSchema = exports.createIncomeSchema = void 0;
+exports.auditTransactionSchema = exports.getCashTransactionsQuerySchema = exports.createExpenseSchema = exports.createIncomeSchema = void 0;
 const zod_1 = require("zod");
 exports.createIncomeSchema = zod_1.z.object({
     body: zod_1.z.object({
@@ -60,5 +60,16 @@ exports.getCashTransactionsQuerySchema = zod_1.z.object({
             return isNaN(d.getTime()) ? undefined : d;
         }),
         search: zod_1.z.string().optional(),
+    }),
+});
+exports.auditTransactionSchema = zod_1.z.object({
+    params: zod_1.z.object({
+        id: zod_1.z.string().uuid('Invalid transaction ID format'),
+    }),
+    body: zod_1.z.object({
+        status: zod_1.z.enum(['TERVERIFIKASI', 'PERLU_KLARIFIKASI', 'TIDAK_VALID'], {
+            message: 'Status must be TERVERIFIKASI, PERLU_KLARIFIKASI, or TIDAK_VALID',
+        }),
+        notes: zod_1.z.string().optional(),
     }),
 });

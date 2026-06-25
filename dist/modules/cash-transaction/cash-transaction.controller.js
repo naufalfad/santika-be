@@ -113,5 +113,24 @@ class CashTransactionController {
             next(error);
         }
     }
+    static async auditTransaction(req, res, next) {
+        try {
+            const parokiId = req.user.parokiId;
+            const userId = req.user.id;
+            const id = req.params.id;
+            const { status, notes } = req.body;
+            const updatedTransaction = await cash_transaction_service_1.CashTransactionService.auditTransaction(parokiId, userId, id, status, notes);
+            res.status(200).json({
+                status: 'success',
+                message: 'Hasil verifikasi audit transaksi berhasil disimpan',
+                data: {
+                    transaction: updatedTransaction,
+                },
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
 }
 exports.CashTransactionController = CashTransactionController;

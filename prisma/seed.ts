@@ -1535,26 +1535,69 @@ async function main() {
 
   console.log('✅ 12 Case Scenarios seeded successfully.');
 
-  // 8. Generate Audit Logs for actions
-  console.log('📝 Seeding Audit Logs...');
-  const auditLogs = [
-    { type: 'AUTH', action: 'User login berhasil - admin@santika.org', actorId: adminUser!.id, date: new Date('2026-06-19T08:00:00Z') },
-    { type: 'APPROVE', action: 'Menyetujui Permohonan Anggaran REQ-2026-004 (Retret OMK)', actorId: pastorUser!.id, date: new Date('2026-06-05T10:00:00Z') },
-    { type: 'OUT', action: 'Mencatat Kas Keluar Uang Muka Misa Krisma Wilayah senilai Rp 35.000.000', actorId: bendaharaUser!.id, date: new Date('2026-06-05T10:00:00Z') },
-    { type: 'SPJ', action: 'Mengajukan dokumen SPJ Krisma Wilayah 2026', actorId: komisiUser!.id, date: new Date('2026-06-15T15:00:00Z') },
-    { type: 'IN', action: 'Mencatat Penerimaan Kotak Pembangunan Wilayah Kapel senilai Rp 38.000.000', actorId: bendaharaUser!.id, date: new Date('2026-05-02T11:00:00Z') },
-  ];
+  // 8. Generate real, auditable AuditLogs for all seeded CashTransactions
+  console.log('📝 Seeding Audit Logs from actual transactions...');
+  const seededTransactions = await prisma.cashTransaction.findMany({
+    include: {
+      fundCategory: true,
+      incomeType: true,
+      expenseType: true,
+    }
+  });
 
-  for (const log of auditLogs) {
+  for (const tx of seededTransactions) {
+    const isIncome = tx.transactionType === 'INCOME';
+    const fundName = tx.fundCategory?.name || 'Umum';
+    const typeName = isIncome 
+      ? (tx.incomeType?.name || 'Lain-lain')
+      : (tx.expenseType?.name || 'Lain-lain');
+    
+    const formattedAmount = new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0,
+    }).format(Number(tx.amount));
+
+    const actionText = isIncome
+      ? `Mencatat Kas Masuk (Pos Dana: ${fundName}) - Jenis: ${typeName} senilai ${formattedAmount}`
+      : `Mencatat Kas Keluar (Pos Dana: ${fundName}) - Jenis: ${typeName} senilai ${formattedAmount}`;
+
     await prisma.auditLog.create({
       data: {
-        tanggal: log.date,
-        type: log.type,
-        action: log.action,
-        actorId: log.actorId,
-        parokiId: paroki.id,
+        tanggal: tx.transactionDate,
+        type: isIncome ? 'IN' : 'OUT',
+        action: actionText,
+        amount: tx.amount,
+        actorId: tx.createdById,
+        parokiId: tx.parokiId,
+        newData: {
+          transactionId: tx.id,
+          transactionType: tx.transactionType,
+        } as any
       }
     });
+
+    // If the transaction has already been audited in the seed, write an APPROVE log
+    if (tx.auditStatus && tx.auditStatus !== 'BELUM_DIAUDIT') {
+      const statusLabel = 
+        tx.auditStatus === 'TERVERIFIKASI' ? 'TERVERIFIKASI' :
+        tx.auditStatus === 'PERLU_KLARIFIKASI' ? 'PERLU KLARIFIKASI' : 'TIDAK VALID';
+
+      await prisma.auditLog.create({
+        data: {
+          tanggal: tx.auditedAt || tx.transactionDate,
+          type: 'APPROVE',
+          action: `Mengaudit transaksi ${tx.transactionNo} dengan status: ${statusLabel}${tx.auditNotes ? ` (Catatan: ${tx.auditNotes})` : ''}`,
+          amount: tx.amount,
+          actorId: tx.auditedById || tx.createdById,
+          parokiId: tx.parokiId,
+          newData: {
+            transactionId: tx.id,
+            transactionType: tx.transactionType,
+          } as any
+        }
+      });
+    }
   }
 
   console.log('🎉 Seeding successfully completed!');

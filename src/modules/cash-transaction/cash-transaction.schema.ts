@@ -94,3 +94,17 @@ export const getCashTransactionsQuerySchema = z.object({
 export type CreateIncomeInput = z.infer<typeof createIncomeSchema>;
 export type CreateExpenseInput = z.infer<typeof createExpenseSchema>;
 export type GetCashTransactionsQueryInput = z.infer<typeof getCashTransactionsQuerySchema>;
+
+export const auditTransactionSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid transaction ID format'),
+  }),
+  body: z.object({
+    status: z.enum(['TERVERIFIKASI', 'PERLU_KLARIFIKASI', 'TIDAK_VALID'], {
+      message: 'Status must be TERVERIFIKASI, PERLU_KLARIFIKASI, or TIDAK_VALID',
+    }),
+    notes: z.string().optional(),
+  }),
+});
+
+export type AuditTransactionInput = z.infer<typeof auditTransactionSchema>;

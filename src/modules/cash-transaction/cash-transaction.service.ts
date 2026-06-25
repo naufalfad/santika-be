@@ -49,6 +49,13 @@ export class CashTransactionService {
         incomeType: true,
         attachment: true,
         specialFund: true,
+        auditedBy: {
+          select: {
+            id: true,
+            name: true,
+            role: true,
+          },
+        },
       },
       orderBy: { transactionDate: 'desc' },
     });
@@ -112,6 +119,13 @@ export class CashTransactionService {
         },
         parentTransaction: true,
         childTransactions: true,
+        auditedBy: {
+          select: {
+            id: true,
+            name: true,
+            role: true,
+          },
+        },
       },
       orderBy: { transactionDate: 'desc' },
     });
@@ -311,6 +325,10 @@ export class CashTransactionService {
           amount: input.amount,
           actorId: userId,
           parokiId,
+          newData: {
+            transactionId: newTx.id,
+            transactionType: 'INCOME',
+          },
         },
       });
 
@@ -616,6 +634,10 @@ export class CashTransactionService {
           amount: input.amount,
           actorId: userId,
           parokiId,
+          newData: {
+            transactionId: newTx.id,
+            transactionType: 'EXPENSE',
+          },
         },
       });
 
@@ -649,6 +671,13 @@ export class CashTransactionService {
         },
         parentTransaction: true,
         childTransactions: true,
+        auditedBy: {
+          select: {
+            id: true,
+            name: true,
+            role: true,
+          },
+        },
       },
     });
 
@@ -657,5 +686,75 @@ export class CashTransactionService {
     }
 
     return transaction;
+  }
+
+  /**
+   * Audit transaction (update status, notes, auditor info)
+   */
+  static async auditTransaction(
+    parokiId: string,
+    userId: string,
+    id: string,
+    status: 'TERVERIFIKASI' | 'PERLU_KLARIFIKASI' | 'TIDAK_VALID',
+    notes?: string
+  ) {
+    // Check if transaction exists
+    const transaction = await prisma.cashTransaction.findFirst({
+      where: {
+        id,
+        parokiId,
+      },
+    });
+
+    if (!transaction) {
+      throw ApiError.notFound('Transaksi kas tidak ditemukan');
+    }
+
+    // Update transaction
+    const updatedTransaction = await prisma.cashTransaction.update({
+      where: { id },
+      data: {
+        auditStatus: status,
+        auditNotes: notes || null,
+        auditedById: userId,
+        auditedAt: new Date(),
+      },
+      include: {
+        fundCategory: true,
+        incomeType: true,
+        expenseType: true,
+        attachment: true,
+        spj: true,
+        auditedBy: {
+          select: {
+            id: true,
+            name: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    // Format audit status label for logs
+    const statusLabel = 
+      status === 'TERVERIFIKASI' ? 'TERVERIFIKASI' :
+      status === 'PERLU_KLARIFIKASI' ? 'PERLU KLARIFIKASI' : 'TIDAK VALID';
+
+    // Log Audit Trail
+    await prisma.auditLog.create({
+      data: {
+        type: 'APPROVE', // map to APPROVE log type
+        action: `Mengaudit transaksi ${transaction.transactionNo} dengan status: ${statusLabel}${notes ? ` (Catatan: ${notes})` : ''}`,
+        amount: Number(transaction.amount || 0),
+        actorId: userId,
+        parokiId,
+        newData: {
+          transactionId: transaction.id,
+          transactionType: transaction.transactionType,
+        },
+      },
+    });
+
+    return updatedTransaction;
   }
 }

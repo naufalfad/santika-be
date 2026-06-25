@@ -37,6 +37,13 @@ class CashTransactionService {
                 incomeType: true,
                 attachment: true,
                 specialFund: true,
+                auditedBy: {
+                    select: {
+                        id: true,
+                        name: true,
+                        role: true,
+                    },
+                },
             },
             orderBy: { transactionDate: 'desc' },
         });
@@ -85,6 +92,13 @@ class CashTransactionService {
                 },
                 parentTransaction: true,
                 childTransactions: true,
+                auditedBy: {
+                    select: {
+                        id: true,
+                        name: true,
+                        role: true,
+                    },
+                },
             },
             orderBy: { transactionDate: 'desc' },
         });
@@ -252,6 +266,10 @@ class CashTransactionService {
                     amount: input.amount,
                     actorId: userId,
                     parokiId,
+                    newData: {
+                        transactionId: newTx.id,
+                        transactionType: 'INCOME',
+                    },
                 },
             });
             return newTx;
@@ -500,6 +518,10 @@ class CashTransactionService {
                     amount: input.amount,
                     actorId: userId,
                     parokiId,
+                    newData: {
+                        transactionId: newTx.id,
+                        transactionType: 'EXPENSE',
+                    },
                 },
             });
             return newTx;
@@ -531,12 +553,76 @@ class CashTransactionService {
                 },
                 parentTransaction: true,
                 childTransactions: true,
+                auditedBy: {
+                    select: {
+                        id: true,
+                        name: true,
+                        role: true,
+                    },
+                },
             },
         });
         if (!transaction) {
             throw api_error_1.ApiError.notFound('Transaksi kas tidak ditemukan');
         }
         return transaction;
+    }
+    /**
+     * Audit transaction (update status, notes, auditor info)
+     */
+    static async auditTransaction(parokiId, userId, id, status, notes) {
+        // Check if transaction exists
+        const transaction = await database_1.prisma.cashTransaction.findFirst({
+            where: {
+                id,
+                parokiId,
+            },
+        });
+        if (!transaction) {
+            throw api_error_1.ApiError.notFound('Transaksi kas tidak ditemukan');
+        }
+        // Update transaction
+        const updatedTransaction = await database_1.prisma.cashTransaction.update({
+            where: { id },
+            data: {
+                auditStatus: status,
+                auditNotes: notes || null,
+                auditedById: userId,
+                auditedAt: new Date(),
+            },
+            include: {
+                fundCategory: true,
+                incomeType: true,
+                expenseType: true,
+                attachment: true,
+                spj: true,
+                auditedBy: {
+                    select: {
+                        id: true,
+                        name: true,
+                        role: true,
+                    },
+                },
+            },
+        });
+        // Format audit status label for logs
+        const statusLabel = status === 'TERVERIFIKASI' ? 'TERVERIFIKASI' :
+            status === 'PERLU_KLARIFIKASI' ? 'PERLU KLARIFIKASI' : 'TIDAK VALID';
+        // Log Audit Trail
+        await database_1.prisma.auditLog.create({
+            data: {
+                type: 'APPROVE', // map to APPROVE log type
+                action: `Mengaudit transaksi ${transaction.transactionNo} dengan status: ${statusLabel}${notes ? ` (Catatan: ${notes})` : ''}`,
+                amount: Number(transaction.amount || 0),
+                actorId: userId,
+                parokiId,
+                newData: {
+                    transactionId: transaction.id,
+                    transactionType: transaction.transactionType,
+                },
+            },
+        });
+        return updatedTransaction;
     }
 }
 exports.CashTransactionService = CashTransactionService;

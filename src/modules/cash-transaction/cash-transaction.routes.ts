@@ -8,6 +8,7 @@ import {
   createIncomeSchema,
   createExpenseSchema,
   getCashTransactionsQuerySchema,
+  auditTransactionSchema,
 } from './cash-transaction.schema';
 import { Role } from '@prisma/client';
 
@@ -56,6 +57,14 @@ router.post(
   multerUpload.single('file'),
   validateRequest(createExpenseSchema),
   CashTransactionController.createExpense
+);
+
+// --- AUDIT ---
+router.put(
+  '/transactions/:id/audit',
+  authorize(Role.BENDAHARA, Role.PASTOR, Role.SUPER_ADMIN),
+  validateRequest(auditTransactionSchema),
+  CashTransactionController.auditTransaction
 );
 
 export default router;

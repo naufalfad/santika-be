@@ -27,13 +27,26 @@ const special_fund_cron_1 = require("./modules/special-fund/special-fund.cron");
 const path_1 = __importDefault(require("path"));
 const app = (0, express_1.default)();
 // Security Middlewares
-app.use((0, helmet_1.default)({ crossOriginResourcePolicy: false }));
+app.use((0, helmet_1.default)({
+    crossOriginResourcePolicy: false,
+    contentSecurityPolicy: {
+        directives: {
+            frameAncestors: ["'self'", 'http://localhost:5173', 'http://localhost:3000'],
+        },
+    },
+}));
 app.use((0, cors_1.default)());
-// Serve static uploads
-app.use('/uploads', express_1.default.static(path_1.default.join(process.cwd(), 'uploads')));
-// Body Parsers
-app.use(express_1.default.json());
-app.use(express_1.default.urlencoded({ extended: true }));
+// Serve static uploads with CORS headers
+app.use('/uploads', (req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Cache-Control', 'public, max-age=31536000');
+    next();
+}, express_1.default.static(path_1.default.join(process.cwd(), 'uploads')));
+// Body Parsers with increased limits
+app.use(express_1.default.json({ limit: '50mb' }));
+app.use(express_1.default.urlencoded({ extended: true, limit: '50mb' }));
 // API Routes
 app.use('/api/v1/auth', auth_routes_1.default);
 app.use('/api/v1/users', users_routes_1.default);
