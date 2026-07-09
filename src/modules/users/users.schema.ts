@@ -42,3 +42,19 @@ export const getUsersQuerySchema = z.object({
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type ToggleUserStatusInput = z.infer<typeof toggleUserStatusSchema>;
 export type GetUsersQueryInput = z.infer<typeof getUsersQuerySchema>;
+
+export const updateUserSchema = z.object({
+  params: z.object({
+    id: z.string().uuid('Invalid user ID format'),
+  }),
+  body: z.object({
+    name: z.string().min(2, 'Name must be at least 2 characters').optional(),
+    password: z.string().min(6, 'Password must be at least 6 characters').optional(),
+  }).refine((data) => data.name !== undefined || data.password !== undefined, {
+    message: 'Either name or password must be provided',
+    path: ['name', 'password'],
+  }),
+});
+
+export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+

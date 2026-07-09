@@ -299,4 +299,34 @@ export class ReportService {
       };
     });
   }
+
+  static async getSignatories(parokiId: string) {
+    const pastor = await prisma.user.findFirst({
+      where: {
+        parokiId,
+        role: 'PASTOR',
+        isActive: true,
+      },
+      select: {
+        name: true,
+      },
+    });
+
+    const treasurer = await prisma.user.findFirst({
+      where: {
+        parokiId,
+        role: 'BENDAHARA',
+        isActive: true,
+      },
+      select: {
+        name: true,
+      },
+    });
+
+    return {
+      pastorName: pastor?.name || 'RP. Johannes Surono',
+      treasurerName: treasurer?.name || 'Yuliana Shanti',
+    };
+  }
 }
+

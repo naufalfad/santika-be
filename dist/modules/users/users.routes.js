@@ -15,4 +15,5 @@ router.use((0, rbac_guard_1.authorize)(client_1.Role.SUPER_ADMIN));
 router.get('/', (0, validation_middleware_1.validateRequest)(users_schema_1.getUsersQuerySchema), users_controller_1.UsersController.getUsers);
 router.post('/', (0, validation_middleware_1.validateRequest)(users_schema_1.createUserSchema), users_controller_1.UsersController.createUser);
 router.patch('/:id/status', (0, validation_middleware_1.validateRequest)(users_schema_1.toggleUserStatusSchema), users_controller_1.UsersController.toggleUserStatus);
+router.patch('/:id', (0, validation_middleware_1.validateRequest)(users_schema_1.updateUserSchema), users_controller_1.UsersController.updateUser);
 exports.default = router;

@@ -61,5 +61,23 @@ class UsersController {
             next(error);
         }
     }
+    static async updateUser(req, res, next) {
+        try {
+            const parokiId = req.user.parokiId;
+            const actorId = req.user.id;
+            const targetId = req.params.id;
+            const updatedUser = await users_service_1.UsersService.updateUser(parokiId, actorId, targetId, req.body);
+            res.status(200).json({
+                status: 'success',
+                message: 'User account updated successfully',
+                data: {
+                    user: updatedUser,
+                },
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
 }
 exports.UsersController = UsersController;

@@ -7,7 +7,9 @@ import {
   createUserSchema,
   toggleUserStatusSchema,
   getUsersQuerySchema,
+  updateUserSchema,
 } from './users.schema';
+
 import { Role } from '@prisma/client';
 
 const router = Router();
@@ -20,5 +22,7 @@ router.use(authorize(Role.SUPER_ADMIN));
 router.get('/', validateRequest(getUsersQuerySchema), UsersController.getUsers);
 router.post('/', validateRequest(createUserSchema), UsersController.createUser);
 router.patch('/:id/status', validateRequest(toggleUserStatusSchema), UsersController.toggleUserStatus);
+router.patch('/:id', validateRequest(updateUserSchema), UsersController.updateUser);
 
 export default router;
+

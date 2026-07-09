@@ -52,4 +52,18 @@ export class ReportController {
       next(error);
     }
   }
+
+  static async getSignatories(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const data = await ReportService.getSignatories(parokiId);
+      res.status(200).json({
+        status: 'success',
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
+

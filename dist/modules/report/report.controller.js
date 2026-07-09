@@ -48,5 +48,18 @@ class ReportController {
             next(error);
         }
     }
+    static async getSignatories(req, res, next) {
+        try {
+            const parokiId = req.user.parokiId;
+            const data = await report_service_1.ReportService.getSignatories(parokiId);
+            res.status(200).json({
+                status: 'success',
+                data,
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
 }
 exports.ReportController = ReportController;

@@ -71,4 +71,30 @@ export class UsersController {
       next(error);
     }
   }
+
+  static async updateUser(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parokiId = req.user!.parokiId;
+      const actorId = req.user!.id;
+      const targetId = req.params.id as string;
+
+      const updatedUser = await UsersService.updateUser(
+        parokiId,
+        actorId,
+        targetId,
+        req.body
+      );
+
+      res.status(200).json({
+        status: 'success',
+        message: 'User account updated successfully',
+        data: {
+          user: updatedUser,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
+

@@ -119,5 +119,45 @@ class UsersService {
         const { password, ...userWithoutPassword } = updatedUser;
         return userWithoutPassword;
     }
+    static async updateUser(parokiId, actorId, targetId, input) {
+        // 1. Verify target user exists and belongs to the same paroki
+        const targetUser = await database_1.prisma.user.findFirst({
+            where: { id: targetId, parokiId },
+        });
+        if (!targetUser) {
+            throw api_error_1.ApiError.notFound('User not found or does not belong to your Paroki');
+        }
+        const updateData = {};
+        const auditDetails = [];
+        if (input.name) {
+            updateData.name = input.name;
+            auditDetails.push(`changed name from "${targetUser.name}" to "${input.name}"`);
+        }
+        if (input.password) {
+            const hashedPassword = await bcryptjs_1.default.hash(input.password, 10);
+            updateData.password = hashedPassword;
+            auditDetails.push('reset password');
+        }
+        if (Object.keys(updateData).length === 0) {
+            throw api_error_1.ApiError.badRequest('No data provided to update');
+        }
+        // 2. Perform update
+        const updatedUser = await database_1.prisma.user.update({
+            where: { id: targetId },
+            data: updateData,
+        });
+        // 3. Log action to audit logs
+        await database_1.prisma.auditLog.create({
+            data: {
+                type: 'AUTH',
+                action: `Updated user account (${updatedUser.email}): ${auditDetails.join(' and ')}`,
+                actorId,
+                parokiId,
+            },
+        });
+        // 4. Return user without password
+        const { password, ...userWithoutPassword } = updatedUser;
+        return userWithoutPassword;
+    }
 }
 exports.UsersService = UsersService;

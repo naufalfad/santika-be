@@ -9,7 +9,9 @@ import { Role } from '@prisma/client';
 const router = Router();
 
 router.use(authenticate);
+router.get('/signatories', ReportController.getSignatories);
 router.use(authorize(Role.SUPER_ADMIN, Role.PASTOR, Role.BENDAHARA, Role.DEWAN_KEUANGAN));
+
 
 router.get('/bku', validateRequest(getReportQuerySchema), ReportController.getBkuReport);
 router.get('/cash-flow', validateRequest(getReportQuerySchema), ReportController.getCashFlowReport);
