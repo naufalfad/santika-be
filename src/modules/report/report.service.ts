@@ -104,6 +104,21 @@ export class ReportService {
       };
     });
 
+    // Prepend starting balance from previous month
+    const prevMonthDate = new Date(startDate.getTime() - 24 * 60 * 60 * 1000);
+    const formattedPrevDate = prevMonthDate.toISOString().split('T')[0];
+    const startingRecord = {
+      id: 'STARTING_BALANCE',
+      tanggal: formattedPrevDate,
+      keterangan: 'Saldo Pindahan dari Bulan Sebelumnya',
+      ref: '-',
+      masuk: 0,
+      keluar: 0,
+      saldo: startingBalance,
+    };
+    allRecords.unshift(startingRecord);
+
+
     // Filter records in-memory if search parameter is provided
     let filteredRecords = allRecords;
     if (search) {
